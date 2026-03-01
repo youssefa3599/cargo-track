@@ -1,0 +1,126 @@
+/* src/app/styles/globals.css */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer utilities {
+  /* Blob animations */
+  .animate-blob {
+    animation: blobAnim 12s infinite;
+  }
+  @keyframes blobAnim {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    25% { transform: translate(20px, -30px) scale(1.1); }
+    50% { transform: translate(-20px, 20px) scale(0.95); }
+    75% { transform: translate(10px, 30px) scale(1.05); }
+  }
+
+  .animation-delay-2000 {
+    animation-delay: 2s;
+  }
+
+  /* Fade-in & card hover (if you have them) */
+  .fade-in {
+    animation: fadeIn 0.4s ease-out forwards;
+  }
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .card-hover {
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+  }
+  .card-hover:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
+  }
+
+  /* Status badge animation */
+  .status-badge {
+    animation: badgePulse 2s infinite;
+  }
+  
+  @keyframes badgePulse {
+    0%, 100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.8;
+    }
+  }
+
+  /* Gradient background (for light mode contexts) */
+  .gradient-bg-subtle {
+    background: linear-gradient(135deg, rgba(255,255,255,0.9) 0%, rgba(249,250,251,0.9) 100%);
+  }
+
+  /* ✅ DARK FORM STYLES — for form inputs on dark backgrounds */
+  .dark-form-label {
+    @apply block text-sm font-medium text-gray-300 mb-2;
+  }
+
+  .dark-form-input,
+  .dark-form-textarea,
+  .dark-form-select {
+    @apply w-full px-4 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors;
+  }
+
+  .dark-form-textarea {
+    @apply min-h-[100px] resize-y;
+  }
+
+  .dark-form-button-primary {
+    @apply px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-700 disabled:cursor-not-allowed;
+  }
+
+  .dark-form-button-secondary {
+    @apply px-6 py-2 border border-gray-600 text-gray-300 rounded-lg hover:bg-gray-800;
+  }
+
+  .dark-form-section-title {
+    @apply text-xl font-semibold text-white mb-4;
+  }
+
+  .dark-form-section {
+    @apply border-t border-gray-700 pt-8;
+  }
+
+  /* ✅ DARK CARD TEXT STYLES — for readable text INSIDE dark cards (bg-gray-800 etc.) */
+  .dark-card-label {
+    @apply block text-sm font-medium text-gray-300 mb-2;
+  }
+
+  .dark-card-value {
+    @apply text-white font-medium;
+  }
+
+  .dark-card-muted {
+    @apply text-gray-400 text-sm;
+  }
+
+  /* Optional: Light card variants (if used elsewhere) */
+  .light-card-label {
+    @apply block text-sm font-medium text-gray-700 mb-2;
+  }
+
+  .light-card-value {
+    @apply text-gray-900 font-medium;
+  }
+}
+/* ✅ HIGH CONTRAST BLACK TEXT FOR LIGHT CARDS */
+.black-card-label {
+  @apply block text-sm font-medium text-black mb-2;
+}
+
+.black-card-value {
+  @apply text-black font-medium;
+}
+
+.black-card-muted {
+  @apply text-black/70 text-sm; /* Slightly faded but still readable */
+}
+
+.black-card-title {
+  @apply text-xl font-semibold text-black mb-4;
+}
