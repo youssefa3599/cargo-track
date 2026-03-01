@@ -39,7 +39,7 @@
     "jspdf-autotable": "^5.0.7",
     "lucide-react": "^0.460.0",
     "mongoose": "^8.8.4",
-    "next": "14.2.18",
+    "next": "^14.2.35",
     "next-cloudinary": "^6.17.5",
     "nodemailer": "^7.0.13",
     "react": "^18.3.1",
