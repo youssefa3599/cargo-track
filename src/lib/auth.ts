@@ -4,11 +4,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { UserRole } from '@/types';
 
 // ============================
-// ENV
+// ENV HELPER (runtime only)
 // ============================
-const JWT_SECRET = process.env.JWT_SECRET!;
-if (!JWT_SECRET) {
-  throw new Error('Please define JWT_SECRET in .env.local');
+function getSecret(): string {
+  const secret = process.env.JWT_SECRET;
+  if (!secret) throw new Error('Please define JWT_SECRET in .env.local');
+  return secret;
 }
 
 // ============================
@@ -53,12 +54,12 @@ export async function comparePassword(
 // ============================
 export function generateToken(payload: JWTPayload): string {
   console.log('🪙 [generateToken] Generating JWT payload:', payload);
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: '7d' });
+  return jwt.sign(payload, getSecret(), { expiresIn: '7d' });
 }
 
 export function verifyToken(token: string): JWTPayload | null {
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as JWTPayload;
+    const decoded = jwt.verify(token, getSecret()) as JWTPayload;
     console.log('🔐 [verifyToken] Decoded JWT:', decoded);
     return decoded;
   } catch (error) {
