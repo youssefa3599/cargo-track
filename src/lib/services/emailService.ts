@@ -1,36 +1,20 @@
 // src/lib/services/emailService.ts
 import nodemailer from 'nodemailer';
 
-// ✅ Log SMTP config on startup
-console.log('📧 [EmailService] Initializing SMTP transporter...');
-console.log('📧 [EmailService] SMTP_HOST:', process.env.SMTP_HOST || '❌ NOT SET');
-console.log('📧 [EmailService] SMTP_PORT:', process.env.SMTP_PORT || '❌ NOT SET');
-console.log('📧 [EmailService] SMTP_USER:', process.env.SMTP_USER || '❌ NOT SET');
-console.log('📧 [EmailService] SMTP_PASS:', process.env.SMTP_PASS ? '✅ SET' : '❌ NOT SET');
-console.log('📧 [EmailService] APP_URL:', process.env.NEXT_PUBLIC_APP_URL || '❌ NOT SET');
-
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST,
-  port: Number(process.env.SMTP_PORT),
-  secure: Number(process.env.SMTP_PORT) === 465,
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
-  },
-  tls: {
-    rejectUnauthorized: false,
-  },
-});
-
-// ✅ Verify SMTP connection on startup
-transporter.verify((error, success) => {
-  if (error) {
-    console.error('❌ [EmailService] SMTP connection FAILED:', error.message);
-    console.error('❌ [EmailService] Full error:', error);
-  } else {
-    console.log('✅ [EmailService] SMTP connection verified and ready');
-  }
-});
+function createTransporter() {
+  return nodemailer.createTransport({
+    host: process.env.SMTP_HOST,
+    port: Number(process.env.SMTP_PORT),
+    secure: Number(process.env.SMTP_PORT) === 465,
+    auth: {
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASS,
+    },
+    tls: {
+      rejectUnauthorized: false,
+    },
+  });
+}
 
 export async function sendVerificationEmail(
   email: string,
@@ -45,6 +29,8 @@ export async function sendVerificationEmail(
   console.log('  Token (first 10):', verificationToken.substring(0, 10) + '...');
   console.log('  Verification URL:', verificationUrl);
   console.log('  From:', process.env.EMAIL_FROM || process.env.SMTP_USER);
+
+  const transporter = createTransporter();
 
   try {
     const info = await transporter.sendMail({
@@ -65,7 +51,7 @@ export async function sendVerificationEmail(
     console.error('  Error message:', error.message);
     console.error('  Error code:', error.code);
     console.error('  Full error:', error);
-    throw error; // re-throw so caller knows it failed
+    throw error;
   }
 }
 
@@ -76,6 +62,8 @@ export async function sendInvoiceEmail(
   const customerName = invoice.customerId?.name || invoice.customerId?.companyName || 'Customer';
 
   console.log('📧 [sendInvoiceEmail] Sending to:', recipientEmail);
+
+  const transporter = createTransporter();
 
   const info = await transporter.sendMail({
     from: `"${process.env.EMAIL_FROM_NAME || 'Cargo Tracking'}" <${process.env.EMAIL_FROM || process.env.SMTP_USER}>`,
