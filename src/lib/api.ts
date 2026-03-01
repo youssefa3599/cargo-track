@@ -22,7 +22,7 @@ export interface RegisterData {
   email: string;
   password: string;
   name: string;
-  companyName?: string; // ← add the ?
+  companyName?: string;
   role?: string;
 }
 
@@ -32,10 +32,8 @@ interface AuthResponse {
 }
 
 // ==================== API INSTANCE ====================
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api';
-
 const api = axios.create({
-  baseURL: API_BASE_URL,
+  baseURL: '/api',
   headers: {
     'Content-Type': 'application/json',
   },
@@ -120,10 +118,8 @@ export const customerAPI = {
     api.delete(`/customers/${id}`),
 };
 
-
-
 // ==========================================
-// Dashboard API - Add this section to the bottom of your api.ts
+// Dashboard API
 // ==========================================
 
 export interface DashboardStats {
@@ -146,13 +142,11 @@ export interface RecentShipment {
 }
 
 export const dashboardAPI = {
-  // Get dashboard statistics
   getStats: async (): Promise<DashboardStats> => {
     const response = await api.get('/dashboard/stats');
     return response.data;
   },
 
-  // Get recent shipments
   getRecentShipments: async (limit: number = 5): Promise<RecentShipment[]> => {
     const response = await api.get('/shipments', {
       params: {
@@ -164,9 +158,9 @@ export const dashboardAPI = {
     return response.data.shipments || response.data;
   },
 };
+
 // ==================== EXPORT ====================
 export default api;
-
 
 // ==================== PRODUCT API ====================
 export const productAPI = {
