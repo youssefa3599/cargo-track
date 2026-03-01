@@ -1,19 +1,32 @@
 // src/lib/services/emailService.ts
-import nodemailer from 'nodemailer';
 
-function createTransporter() {
-  return nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
-    port: Number(process.env.SMTP_PORT),
-    secure: Number(process.env.SMTP_PORT) === 465,
-    auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS,
+async function sendBrevoEmail(to: string, toName: string, subject: string, html: string): Promise<void> {
+  const apiKey = process.env.BREVO_API_KEY;
+  if (!apiKey) throw new Error('BREVO_API_KEY is not set');
+
+  const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'api-key': apiKey,
     },
-    tls: {
-      rejectUnauthorized: false,
-    },
+    body: JSON.stringify({
+      sender: {
+        name: process.env.EMAIL_FROM_NAME || 'Cargo Tracking',
+        email: process.env.EMAIL_FROM || process.env.SMTP_USER,
+      },
+      to: [{ email: to, name: toName }],
+      subject,
+      htmlContent: html,
+    }),
   });
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`Brevo API error: ${response.status} - ${error}`);
+  }
+
+  console.log('✅ [Brevo] Email sent successfully to:', to);
 }
 
 export async function sendVerificationEmail(
@@ -28,29 +41,13 @@ export async function sendVerificationEmail(
   console.log('  Name:', name);
   console.log('  Token (first 10):', verificationToken.substring(0, 10) + '...');
   console.log('  Verification URL:', verificationUrl);
-  console.log('  From:', process.env.EMAIL_FROM || process.env.SMTP_USER);
-
-  const transporter = createTransporter();
 
   try {
-    const info = await transporter.sendMail({
-      from: `"${process.env.EMAIL_FROM_NAME || 'Cargo Tracking'}" <${process.env.EMAIL_FROM || process.env.SMTP_USER}>`,
-      to: email,
-      subject: 'Verify Your Email Address',
-      html: generateVerificationEmailHTML(name, verificationUrl),
-    });
-
+    await sendBrevoEmail(email, name, 'Verify Your Email Address', generateVerificationEmailHTML(name, verificationUrl));
     console.log('✅ [sendVerificationEmail] Email sent successfully!');
-    console.log('  Message ID:', info.messageId);
-    console.log('  Response:', info.response);
-    console.log('  Accepted:', info.accepted);
-    console.log('  Rejected:', info.rejected);
   } catch (error: any) {
     console.error('❌ [sendVerificationEmail] FAILED to send email!');
-    console.error('  Error name:', error.name);
     console.error('  Error message:', error.message);
-    console.error('  Error code:', error.code);
-    console.error('  Full error:', error);
     throw error;
   }
 }
@@ -63,16 +60,14 @@ export async function sendInvoiceEmail(
 
   console.log('📧 [sendInvoiceEmail] Sending to:', recipientEmail);
 
-  const transporter = createTransporter();
+  await sendBrevoEmail(
+    recipientEmail,
+    customerName,
+    `Invoice ${invoice.invoiceNumber}`,
+    generateInvoiceEmailHTML(invoice)
+  );
 
-  const info = await transporter.sendMail({
-    from: `"${process.env.EMAIL_FROM_NAME || 'Cargo Tracking'}" <${process.env.EMAIL_FROM || process.env.SMTP_USER}>`,
-    to: recipientEmail,
-    subject: `Invoice ${invoice.invoiceNumber}`,
-    html: generateInvoiceEmailHTML(invoice),
-  });
-
-  console.log('✅ [sendInvoiceEmail] Sent! Message ID:', info.messageId);
+  console.log('✅ [sendInvoiceEmail] Sent!');
 }
 
 function generateVerificationEmailHTML(name: string, verificationUrl: string): string {
