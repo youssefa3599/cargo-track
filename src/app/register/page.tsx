@@ -2,30 +2,25 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/context/AuthContext';
 
 export default function RegisterPage() {
-  const router = useRouter();
   const { register } = useAuth();
   const [formData, setFormData] = useState({
     name: '',
     email: '',
     password: '',
     confirmPassword: '',
-    companyName: '', // Optional
-    role: 'user' as 'admin' | 'user', // ✅ ADDED: Default role
+    companyName: '',
+    role: 'user' as 'admin' | 'user',
   });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [success, setSuccess] = useState(false);
+  const [emailSent, setEmailSent] = useState(false);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.value,
-    });
+    setFormData({ ...formData, [e.target.name]: e.target.value });
     setError('');
   };
 
@@ -34,122 +29,77 @@ export default function RegisterPage() {
     setError('');
     setLoading(true);
 
-    console.log('\n' + '='.repeat(80));
-    console.log('📝 [Register Page] FORM SUBMISSION');
-    console.log('='.repeat(80));
-    console.log('📦 Form data:', {
-      name: formData.name,
-      email: formData.email,
-      companyName: formData.companyName || 'N/A',
-      role: formData.role, // ✅ ADDED: Log role
-      passwordLength: formData.password.length,
-    });
-
-    // Validate passwords match
     if (formData.password !== formData.confirmPassword) {
-      console.log('❌ [Register Page] Passwords do not match');
       setError('Passwords do not match');
       setLoading(false);
       return;
     }
 
-    // Validate password length
     if (formData.password.length < 6) {
-      console.log('❌ [Register Page] Password too short');
       setError('Password must be at least 6 characters long');
       setLoading(false);
       return;
     }
 
-    // Validate name
     if (!formData.name || formData.name.trim().length === 0) {
-      console.log('❌ [Register Page] Name is required');
       setError('Please provide your name');
       setLoading(false);
       return;
     }
 
-    console.log('✅ [Register Page] All validations passed');
-
     try {
-      console.log('🚀 [Register Page] Calling register function...');
-      
-      // ✅ Pass data in the format AuthContext expects
       const result = await register({
         email: formData.email,
         password: formData.password,
         name: formData.name,
         companyName: formData.companyName || undefined,
-        role: formData.role, // ✅ ADDED: Pass role to register
+        role: formData.role,
       });
-      
+
       if (result.success) {
-        console.log('✅ [Register Page] Registration successful');
-        console.log('='.repeat(80) + '\n');
-        setSuccess(true);
-        
-        // Redirect to login after 5 seconds
-        setTimeout(() => {
-          router.push('/login');
-        }, 5000);
+        // ✅ Stay on page and show confirmation — NO redirect here
+        // The only redirect in this flow is verify-email/route.ts → /login?verified=true
+        setEmailSent(true);
       } else {
-        console.log('❌ [Register Page] Registration failed:', result.error);
-        console.log('='.repeat(80) + '\n');
         setError(result.error || 'Registration failed');
       }
     } catch (err: any) {
-      console.error('❌ [Register Page] Unexpected error:', err);
-      console.error('='.repeat(80) + '\n');
       setError(err.message || 'An error occurred during registration');
     } finally {
       setLoading(false);
     }
   };
 
-  if (success) {
+  // ✅ Simple confirmation — just tells user to check email, nothing else
+  if (emailSent) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-50 to-blue-50 px-4">
-        <div className="max-w-md w-full bg-white rounded-lg shadow-xl p-8">
-          <div className="text-center">
-            <div className="mx-auto flex items-center justify-center h-16 w-16 rounded-full bg-green-100 mb-4">
-              <svg
-                className="h-8 w-8 text-green-600"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth="2"
-                  d="M5 13l4 4L19 7"
-                />
-              </svg>
-            </div>
-            <h2 className="text-2xl font-bold text-gray-900 mb-2">
-              Registration Successful!
-            </h2>
-            <p className="text-gray-600 mb-4">
-              We've sent a verification email to <strong>{formData.email}</strong>
-            </p>
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
-              <p className="text-sm text-blue-800">
-                📧 Please check your inbox and click the verification link to activate your account.
-              </p>
-            </div>
-            <p className="text-sm text-gray-500 mb-6">
-              Didn't receive the email? Check your spam folder or{' '}
-              <Link href="/login" className="text-purple-600 hover:text-purple-700 font-medium">
-                request a new one on the login page
-              </Link>
-            </p>
-            <Link
-              href="/login"
-              className="inline-block w-full bg-purple-600 text-white py-3 px-4 rounded-lg font-medium hover:bg-purple-700 transition-colors"
-            >
-              Go to Login
-            </Link>
+        <div className="max-w-md w-full bg-white rounded-lg shadow-xl p-8 text-center">
+          <div className="mx-auto flex items-center justify-center h-16 w-16 rounded-full bg-blue-100 mb-6">
+            <svg className="h-8 w-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"
+                d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+            </svg>
           </div>
+          <h2 className="text-2xl font-bold text-gray-900 mb-3">Verification link sent!</h2>
+          <p className="text-gray-500 mb-1">We sent a verification link to</p>
+          <p className="text-purple-700 font-semibold text-lg mb-6">{formData.email}</p>
+          <p className="text-sm text-gray-500 mb-8">
+            Click the link in your email to create your account.
+            You'll be redirected to login automatically once verified.
+          </p>
+          <p className="text-xs text-gray-400">
+            Wrong email?{' '}
+            <button
+              onClick={() => {
+                setEmailSent(false);
+                setFormData({ name: '', email: '', password: '', confirmPassword: '', companyName: '', role: 'user' });
+              }}
+              className="text-purple-600 hover:underline"
+            >
+              Go back and try again
+            </button>
+          </p>
         </div>
       </div>
     );
@@ -159,9 +109,7 @@ export default function RegisterPage() {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-50 to-blue-50 px-4">
       <div className="max-w-md w-full bg-white rounded-lg shadow-xl p-8">
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">
-            Create Account
-          </h1>
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">Create Account</h1>
           <p className="text-gray-600">Sign up for Cargo Tracking</p>
         </div>
 
@@ -219,7 +167,6 @@ export default function RegisterPage() {
             />
           </div>
 
-          {/* ✅ ADDED: Role Selection */}
           <div>
             <label htmlFor="role" className="block text-sm font-medium text-gray-700 mb-2">
               Account Type *
@@ -279,7 +226,7 @@ export default function RegisterPage() {
             disabled={loading}
             className="w-full bg-purple-600 text-white py-3 px-4 rounded-lg font-medium hover:bg-purple-700 transition-colors disabled:bg-purple-300 disabled:cursor-not-allowed"
           >
-            {loading ? 'Creating Account...' : 'Sign Up'}
+            {loading ? 'Sending verification link...' : 'Sign Up'}
           </button>
         </form>
 

@@ -2,48 +2,42 @@
 import { NextRequest, NextResponse } from 'next/server';
 import dbConnect from '@/lib/db';
 import User from '@/models/User';
+import PendingRegistration from '@/models/PendingRegistration';
 import { sendVerificationEmail } from '@/lib/services/emailService';
-import mongoose from 'mongoose';
 import crypto from 'crypto';
-
-const ULTRA = '🔥'.repeat(40);
-const INFO  = '📧'.repeat(40);
-const OK    = '✅'.repeat(40);
-const FAIL  = '❌'.repeat(40);
 
 export async function POST(request: NextRequest) {
   try {
-    console.log('\n' + ULTRA);
-    console.log('🔥 [REGISTER] NEW REGISTRATION REQUEST');
-    console.log(ULTRA);
+    console.log('[REGISTER] New registration request');
 
     const body = await request.json();
-
-    console.log('\n📋 STEP 1: INPUT DATA');
-    console.log('  email        :', body.email);
-    console.log('  name         :', body.name);
-    console.log('  companyName  :', body.companyName || '(not provided)');
-    console.log('  role         :', body.role || 'user'); // ✅ ADDED: Log role
-    console.log('  password len :', body.password?.length);
-
     const { email, password, name, companyName, role } = body;
 
+    console.log('  email       :', email);
+    console.log('  name        :', name);
+    console.log('  companyName :', companyName || '(not provided)');
+    console.log('  role        :', role || 'user');
+
     if (!email || !password || !name) {
-      console.log('❌ Missing required fields');
       return NextResponse.json(
         { error: 'Please provide email, password, and name' },
         { status: 400 }
       );
     }
 
-    // ✅ ADDED: Validate role
-    const userRole = role && ['admin', 'user'].includes(role) ? role : 'user';
-    console.log('  resolved role:', userRole);
+    if (password.length < 6) {
+      return NextResponse.json(
+        { error: 'Password must be at least 6 characters long' },
+        { status: 400 }
+      );
+    }
 
-    console.log('\n📋 STEP 2: DATABASE CONNECTION');
+    const userRole = role && ['admin', 'user'].includes(role) ? role : 'user';
+
     await dbConnect();
     console.log('  ✅ Database connected');
 
+    // Check real User collection first
     const existingUser = await User.findOne({ email: email.toLowerCase() });
     if (existingUser) {
       console.log('  ❌ User already exists:', email);
@@ -52,101 +46,49 @@ export async function POST(request: NextRequest) {
         { status: 409 }
       );
     }
-    console.log('  ✅ Email is available');
 
-    console.log('\n📋 STEP 3: CREATING USER');
-    const companyId = new mongoose.Types.ObjectId().toString();
-    const resolvedCompanyName = companyName?.trim() || name;
-    const emailVerificationToken = crypto.randomBytes(32).toString('hex');
-    const emailVerificationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    // Remove any previous pending attempt for this email (resend / retry case)
+    await PendingRegistration.deleteOne({ email: email.toLowerCase() });
 
-    console.log('  companyId    :', companyId);
-    console.log('  companyName  :', resolvedCompanyName);
-    console.log('  role         :', userRole); // ✅ ADDED: Log role being saved
-    console.log('  token(10)    :', emailVerificationToken.substring(0, 10) + '...');
-    console.log('  expires      :', emailVerificationExpires.toISOString());
+    const token = crypto.randomBytes(32).toString('hex');
+    const expires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24h
 
-    const user = new User({
+    // ✅ Save to PendingRegistration — NOT to User
+    // User will only be created in verify-email/route.ts when the link is clicked
+    await PendingRegistration.create({
       email: email.toLowerCase(),
-      password,
+      password,                          // plain text — User pre-save hook hashes on final save
       name,
-      companyId,
-      companyName: resolvedCompanyName,
-      role: userRole, // ✅ ADDED: Set role from request
-      isEmailVerified: false,
-      emailVerificationToken,
-      emailVerificationExpires,
+      companyName: companyName?.trim() || name,
+      role: userRole,
+      token,
+      expires,
     });
 
-    await user.save();
-    console.log('  ✅ User saved, _id:', user._id.toString());
-    console.log('  ✅ User role:', user.role); // ✅ ADDED: Confirm role was saved
+    console.log('  ✅ Pending registration saved');
 
-    // ── ULTIMATE EMAIL DEBUG ────────────────────────────────────────────────
-    console.log('\n' + INFO);
-    console.log('📧 STEP 4: EMAIL SENDING - ULTIMATE DEBUG');
-    console.log(INFO);
-
-    console.log('\n  📋 SMTP ENV CHECK:');
-    console.log('  SMTP_HOST      :', process.env.SMTP_HOST         || '❌ NOT SET');
-    console.log('  SMTP_PORT      :', process.env.SMTP_PORT         || '❌ NOT SET');
-    console.log('  SMTP_USER      :', process.env.SMTP_USER         || '❌ NOT SET');
-    console.log('  SMTP_PASS      :', process.env.SMTP_PASS         ? `✅ SET (len:${process.env.SMTP_PASS.length})` : '❌ NOT SET');
-    console.log('  EMAIL_FROM     :', process.env.EMAIL_FROM        || '❌ NOT SET');
-    console.log('  EMAIL_FROM_NAME:', process.env.EMAIL_FROM_NAME   || '❌ NOT SET');
-    console.log('  APP_URL        :', process.env.NEXT_PUBLIC_APP_URL || '❌ NOT SET');
-
-    const verificationUrl = `${process.env.NEXT_PUBLIC_APP_URL}/api/auth/verify-email?token=${emailVerificationToken}`;
-    console.log('\n  📋 EMAIL DETAILS:');
-    console.log('  To             :', email);
-    console.log('  Verify URL     :', verificationUrl);
-
-    console.log('\n  🚀 CALLING sendVerificationEmail...');
-    const emailStart = Date.now();
-
+    // Send verification email
+    console.log('  📧 Sending verification email to:', email);
     try {
-      await sendVerificationEmail(email, name, emailVerificationToken);
-      const elapsed = Date.now() - emailStart;
-      console.log('\n' + OK);
-      console.log(`✅ EMAIL SENT SUCCESSFULLY in ${elapsed}ms`);
-      console.log(OK + '\n');
+      await sendVerificationEmail(email, name, token);
+      console.log('  ✅ Email sent successfully');
     } catch (emailError: any) {
-      const elapsed = Date.now() - emailStart;
-      console.log('\n' + FAIL);
-      console.log(`❌ EMAIL FAILED after ${elapsed}ms`);
-      console.log(FAIL);
-      console.log('\n  ❌ ERROR DETAILS:');
-      console.log('  name     :', emailError?.name);
-      console.log('  message  :', emailError?.message);
-      console.log('  code     :', emailError?.code);
-      console.log('  command  :', emailError?.command);
-      console.log('  response :', emailError?.response);
-      console.log('  stack    :\n', emailError?.stack);
-      console.log('\n  ❌ FULL ERROR:');
-      console.log(JSON.stringify(emailError, Object.getOwnPropertyNames(emailError), 2));
-      console.log(FAIL + '\n');
-      // Registration still succeeds even if email fails
+      // If email fails, delete the pending record so user can try again
+      await PendingRegistration.deleteOne({ email: email.toLowerCase() });
+      console.error('  ❌ Email failed:', emailError?.message);
+      return NextResponse.json(
+        { error: 'Failed to send verification email. Please try again.' },
+        { status: 500 }
+      );
     }
-    // ── END EMAIL DEBUG ─────────────────────────────────────────────────────
-
-    console.log('\n' + ULTRA);
-    console.log('🔥 [REGISTER] COMPLETE');
-    console.log(ULTRA + '\n');
 
     return NextResponse.json(
-      {
-        message: 'Registration successful. Please check your email to verify your account.',
-        email: user.email,
-        role: user.role, // ✅ ADDED: Return role in response
-      },
-      { status: 201 }
+      { message: 'Verification email sent. Please check your inbox.' },
+      { status: 200 }
     );
 
   } catch (error: any) {
-    console.log('\n' + FAIL);
-    console.error('❌ [REGISTER] CRITICAL ERROR:', error.message);
-    console.error('  stack:', error.stack);
-    console.log(FAIL + '\n');
+    console.error('[REGISTER] Critical error:', error.message);
 
     if (error.name === 'ValidationError') {
       return NextResponse.json(

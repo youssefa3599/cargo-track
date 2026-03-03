@@ -61,6 +61,11 @@ export function verifyToken(token: string): JWTPayload | null {
   try {
     const decoded = jwt.verify(token, getSecret()) as JWTPayload;
     console.log('🔐 [verifyToken] Decoded JWT:', decoded);
+    // Reject old tokens that are missing companyId/companyName — forces re-login
+    if (!decoded.companyId || !decoded.companyName) {
+      console.error('❌ [verifyToken] Token missing companyId/companyName - old token, force re-login');
+      return null;
+    }
     return decoded;
   } catch (error) {
     console.error('❌ [verifyToken] JWT verification failed:', error);
@@ -155,12 +160,14 @@ export function getAuthUser(request: NextRequest): AuthUser | null {
       return null;
     }
 
-    // ✅ FIXED: Check for required fields
-    if (!decoded.userId || !decoded.email || !decoded.role) {
+    // ✅ FIXED: Check for required fields including companyId and companyName
+    if (!decoded.userId || !decoded.email || !decoded.role || !decoded.companyId || !decoded.companyName) {
       console.error('❌ [getAuthUser] Invalid token payload - missing required fields:', {
         hasUserId: !!decoded.userId,
         hasEmail: !!decoded.email,
         hasRole: !!decoded.role,
+        hasCompanyId: !!decoded.companyId,
+        hasCompanyName: !!decoded.companyName,
       });
       return null;
     }

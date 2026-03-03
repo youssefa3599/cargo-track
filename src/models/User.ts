@@ -7,8 +7,8 @@ export interface IUser extends Document {
   password: string;
   name: string;
   role: 'admin' | 'user';
-  companyId: string;       // ✅ ADDED
-  companyName: string;     // ✅ ADDED
+  companyId: string;
+  companyName: string;
   isEmailVerified: boolean;
   emailVerificationToken?: string;
   emailVerificationExpires?: Date;
@@ -40,13 +40,11 @@ const UserSchema = new Schema<IUser>(
       enum: ['admin', 'user'],
       default: 'user',
     },
-    // ✅ ADDED: companyId - unique identifier for the company/tenant
     companyId: {
       type: String,
       required: true,
       default: () => new mongoose.Types.ObjectId().toString(),
     },
-    // ✅ ADDED: companyName - used to scope all data (shipments, suppliers, etc.)
     companyName: {
       type: String,
       required: true,
@@ -87,5 +85,15 @@ UserSchema.methods.comparePassword = async function (
 ): Promise<boolean> {
   return bcrypt.compare(candidatePassword, this.password);
 };
+
+// ✅ TTL index: auto-delete unverified users when emailVerificationExpires is reached
+// partialFilterExpression ensures verified users are NEVER touched
+UserSchema.index(
+  { emailVerificationExpires: 1 },
+  {
+    expireAfterSeconds: 0,
+    partialFilterExpression: { isEmailVerified: false },
+  }
+);
 
 export default mongoose.models.User || mongoose.model<IUser>('User', UserSchema);
