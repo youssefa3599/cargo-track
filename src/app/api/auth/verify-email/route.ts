@@ -6,56 +6,58 @@ import PendingRegistration from '@/models/PendingRegistration';
 import mongoose from 'mongoose';
 
 export async function GET(request: NextRequest) {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || `https://${request.headers.get('host')}`;
+
+  function redirect(path: string) {
+    return NextResponse.redirect(`${appUrl}${path}`);
+  }
+
   try {
     const token = request.nextUrl.searchParams.get('token');
 
     if (!token) {
-      return NextResponse.redirect(new URL('/login?error=invalid_token', request.url));
+      return redirect('/login?error=invalid_token');
     }
 
     await dbConnect();
 
-    // Find the pending registration by token
     const pending = await PendingRegistration.findOne({
       token,
       expires: { $gt: new Date() },
     });
 
     if (!pending) {
-      // Token invalid or expired — pending record already auto-deleted by MongoDB TTL
-      return NextResponse.redirect(new URL('/login?error=token_expired', request.url));
+      return redirect('/login?error=token_expired');
     }
 
-    // Guard against double-clicks — if User already exists just clean up and redirect
+    // Guard against double-clicks
     const existingUser = await User.findOne({ email: pending.email });
     if (existingUser) {
       await PendingRegistration.deleteOne({ token });
-      return NextResponse.redirect(new URL('/login?verified=true', request.url));
+      return redirect('/login?verified=true');
     }
 
-    // ✅ Create the real User now — email is verified from the start
+    // Create the real User now — email is verified from the start
     const companyId = new mongoose.Types.ObjectId().toString();
 
     const user = new User({
       email:           pending.email,
-      password:        pending.password, // User pre-save hook hashes this automatically
+      password:        pending.password,
       name:            pending.name,
       companyName:     pending.companyName,
       companyId,
       role:            pending.role,
-      isEmailVerified: true,             // ✅ already verified — no token fields needed
+      isEmailVerified: true,
     });
 
     await user.save();
 
-    // Delete the pending record
     await PendingRegistration.deleteOne({ token });
 
-    // ✅ Only redirect to login happens here — register page never redirects
-    return NextResponse.redirect(new URL('/login?verified=true', request.url));
+    return redirect('/login?verified=true');
 
   } catch (error: any) {
     console.error('[VERIFY-EMAIL] Error:', error.message);
-    return NextResponse.redirect(new URL('/login?error=verification_failed', request.url));
+    return redirect('/login?error=verification_failed');
   }
 }
