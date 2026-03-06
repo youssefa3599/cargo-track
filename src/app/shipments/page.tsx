@@ -33,7 +33,6 @@ const Edit = LucideIcons.Edit as any;
 const Clock = LucideIcons.Clock as any;
 const CheckCircle = LucideIcons.CheckCircle as any;
 const Truck = LucideIcons.Truck as any;
-const DollarSign = LucideIcons.DollarSign as any;
 
 export default function ShipmentsPage() {
   const { token, isAuthenticated } = useAuth();
@@ -143,7 +142,9 @@ export default function ShipmentsPage() {
     fetchShipments();
   };
 
-  const formatCurrency = (amount: number, currency: string = 'USD') => {
+  // ✅ FIXED: guard against undefined/null amount
+  const formatCurrency = (amount: number | undefined | null, currency: string = 'USD') => {
+    if (amount === undefined || amount === null || isNaN(amount)) return '-';
     const symbol = currency === 'USD' ? '$' : currency === 'EGP' ? 'E£' : currency;
     return `${symbol}${amount.toLocaleString('en-US', {
       minimumFractionDigits: 2,
@@ -203,7 +204,7 @@ export default function ShipmentsPage() {
     },
   ];
 
-  // Define table columns for AnimatedTable
+  // ✅ FIXED: guard against null/undefined inside costBreakdown
   const tableColumns = [
     {
       key: 'trackingNumber',
@@ -219,8 +220,8 @@ export default function ShipmentsPage() {
       label: 'Route',
       render: (_: any, row: Shipment) => (
         <div className="text-sm">
-          <div className="font-medium text-gray-900">{row.origin}</div>
-          <div className="text-gray-500">→ {row.destination}</div>
+          <div className="font-medium text-gray-900">{row.origin || '-'}</div>
+          <div className="text-gray-500">→ {row.destination || '-'}</div>
         </div>
       )
     },
@@ -235,8 +236,8 @@ export default function ShipmentsPage() {
       key: 'status',
       label: 'Status',
       render: (value: ShipmentStatus) => (
-        <AnimatedStatusBadge 
-          status={value} 
+        <AnimatedStatusBadge
+          status={value}
           variant={getStatusVariant(value)}
         />
       )
@@ -251,20 +252,37 @@ export default function ShipmentsPage() {
     {
       key: 'cost',
       label: 'Total Cost',
-      render: (_: any, row: Shipment) => (
-        row.costBreakdown ? (
+      render: (_: any, row: Shipment) => {
+        // ✅ FIXED: check costBreakdown exists AND individual values are defined
+        const hasUSD =
+          row.costBreakdown &&
+          row.costBreakdown.totalLandedCost !== undefined &&
+          row.costBreakdown.totalLandedCost !== null;
+
+        const hasEGP =
+          row.costBreakdown &&
+          row.costBreakdown.totalLandedCostEGP !== undefined &&
+          row.costBreakdown.totalLandedCostEGP !== null;
+
+        if (!hasUSD && !hasEGP) {
+          return <div className="text-sm text-gray-500">No cost data</div>;
+        }
+
+        return (
           <div className="text-sm">
-            <div className="font-semibold text-gray-900">
-              {formatCurrency(row.costBreakdown.totalLandedCost, row.currency || 'USD')}
-            </div>
-            <div className="text-xs text-gray-500">
-              {formatCurrency(row.costBreakdown.totalLandedCostEGP, 'EGP')}
-            </div>
+            {hasUSD && (
+              <div className="font-semibold text-gray-900">
+                {formatCurrency(row.costBreakdown!.totalLandedCost, row.currency || 'USD')}
+              </div>
+            )}
+            {hasEGP && (
+              <div className="text-xs text-gray-500">
+                {formatCurrency(row.costBreakdown!.totalLandedCostEGP, 'EGP')}
+              </div>
+            )}
           </div>
-        ) : (
-          <div className="text-sm text-gray-500">No cost data</div>
-        )
-      )
+        );
+      }
     },
     {
       key: 'estimatedDelivery',
@@ -305,7 +323,6 @@ export default function ShipmentsPage() {
           alt="Shipping containers background"
           className="w-full h-full object-cover"
         />
-        {/* Dark overlay for readability */}
         <div className="absolute inset-0 bg-gradient-to-br from-gray-900/85 via-blue-900/80 to-gray-900/85" />
       </div>
 
