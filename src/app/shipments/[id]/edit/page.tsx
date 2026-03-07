@@ -609,10 +609,10 @@ export default function EditShipmentPage() {
           </div>
         )}
 
-        <AnimatedCard>
+        <AnimatedCard className="!bg-gray-900/95 !border-gray-700">
           <form onSubmit={handleSubmit} className="space-y-8 p-6">
             {/* Basic Information */}
-            <div>
+            <div className="dark-form-section">
               <h2 className="dark-form-section-title">Basic Information</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>

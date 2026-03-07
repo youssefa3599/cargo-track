@@ -73,11 +73,27 @@ export default function EditSupplierPage() {
       }
       const data = await response.json();
       const supplier = data.supplier || data.data || data;
+
+      // address may be a nested object — flatten it to a readable string
+      const rawAddress = supplier.address;
+      let addressStr = '';
+      if (typeof rawAddress === 'string') {
+        addressStr = rawAddress;
+      } else if (rawAddress && typeof rawAddress === 'object') {
+        addressStr = [
+          rawAddress.street,
+          rawAddress.city,
+          rawAddress.state,
+          rawAddress.zipCode,
+          rawAddress.country,
+        ].filter(Boolean).join(', ');
+      }
+
       setFormData({
         name: supplier.name || '',
         email: supplier.email || '',
         phone: supplier.phone || '',
-        address: supplier.address || '',
+        address: addressStr,
         companyName: supplier.companyName || '',
         taxId: supplier.taxId || '',
         country: supplier.country || '',
@@ -192,12 +208,12 @@ export default function EditSupplierPage() {
           />
         )}
 
-        <AnimatedCard className="bg-gray-800/95 border border-gray-700">
+        <AnimatedCard>
           <form onSubmit={handleSubmit} className="space-y-6 p-6">
-            <h2 className="dark-form-section-title">Supplier Information</h2>
+            <h2 className="text-xl font-semibold text-gray-900 mb-4">Supplier Information</h2>
             <div className="space-y-4">
               <div>
-                <label className="dark-form-label">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
                   Supplier Name <span className="text-red-500">*</span>
                 </label>
                 <input
@@ -206,11 +222,11 @@ export default function EditSupplierPage() {
                   value={formData.name}
                   onChange={handleChange}
                   required
-                  className="dark-form-input"
+                  className="w-full px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                 />
               </div>
               <div>
-                <label className="dark-form-label">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
                   Company Name <span className="text-red-500">*</span>
                 </label>
                 <input
@@ -219,11 +235,11 @@ export default function EditSupplierPage() {
                   value={formData.companyName}
                   onChange={handleChange}
                   required
-                  className="dark-form-input"
+                  className="w-full px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                 />
               </div>
               <div>
-                <label className="dark-form-label">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
                   Email <span className="text-red-500">*</span>
                 </label>
                 <input
@@ -232,11 +248,11 @@ export default function EditSupplierPage() {
                   value={formData.email}
                   onChange={handleChange}
                   required
-                  className="dark-form-input"
+                  className="w-full px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                 />
               </div>
               <div>
-                <label className="dark-form-label">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
                   Phone <span className="text-red-500">*</span>
                 </label>
                 <input
@@ -245,11 +261,11 @@ export default function EditSupplierPage() {
                   value={formData.phone}
                   onChange={handleChange}
                   required
-                  className="dark-form-input"
+                  className="w-full px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                 />
               </div>
               <div>
-                <label className="dark-form-label">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
                   Address <span className="text-red-500">*</span>
                 </label>
                 <textarea
@@ -258,63 +274,63 @@ export default function EditSupplierPage() {
                   onChange={handleChange}
                   required
                   rows={3}
-                  className="dark-form-textarea"
+                  className="w-full px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors resize-y"
                 />
               </div>
               <div>
-                <label className="dark-form-label">Country</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Country</label>
                 <input
                   type="text"
                   name="country"
                   value={formData.country}
                   onChange={handleChange}
-                  className="dark-form-input"
+                  className="w-full px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                 />
               </div>
               <div>
-                <label className="dark-form-label">Website</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Website</label>
                 <input
                   type="url"
                   name="website"
                   value={formData.website}
                   onChange={handleChange}
                   placeholder="https://example.com"
-                  className="dark-form-input"
+                  className="w-full px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                 />
-                <p className="text-xs text-gray-400 mt-1">
+                <p className="text-xs text-gray-500 mt-1">
                   Full URL will be saved, but displayed truncated in the detail view
                 </p>
               </div>
               <div>
-                <label className="dark-form-label">Tax ID</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Tax ID</label>
                 <input
                   type="text"
                   name="taxId"
                   value={formData.taxId}
                   onChange={handleChange}
-                  className="dark-form-input"
+                  className="w-full px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                 />
               </div>
               <div>
-                <label className="dark-form-label">Notes</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
                 <textarea
                   name="notes"
                   value={formData.notes}
                   onChange={handleChange}
                   rows={4}
-                  className="dark-form-textarea"
+                  className="w-full px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-900 placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors resize-y"
                 />
               </div>
             </div>
 
             {/* --- Assign Products Section --- */}
-            <div className="pt-4 border-t border-gray-700">
-              <p className="text-sm text-gray-400 mb-2">
+            <div className="pt-4 border-t border-gray-200">
+              <p className="text-sm text-gray-600 mb-2">
                 Link products this supplier sells:
               </p>
               <Link
                 href={`/suppliers/${supplierId}/assign-products`}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-blue-700 hover:bg-blue-600 text-white font-medium rounded-lg transition-colors border border-blue-600"
+                className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors"
               >
                 <Plus className="w-4 h-4" />
                 Assign Products
@@ -322,11 +338,11 @@ export default function EditSupplierPage() {
             </div>
 
             {/* --- Save / Cancel Buttons --- */}
-            <div className="flex gap-4 pt-4 border-t border-gray-700">
+            <div className="flex gap-4 pt-4 border-t border-gray-200">
               <button
                 type="submit"
                 disabled={submitting}
-                className="dark-form-button-primary flex-1 flex items-center justify-center gap-2"
+                className="flex-1 flex items-center justify-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
               >
                 {submitting ? (
                   <>
@@ -342,7 +358,7 @@ export default function EditSupplierPage() {
               </button>
               <Link
                 href={`/suppliers/${supplierId}`}
-                className="dark-form-button-secondary text-center"
+                className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 text-center transition-colors"
               >
                 Cancel
               </Link>

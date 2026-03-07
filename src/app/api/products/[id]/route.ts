@@ -5,7 +5,7 @@ import Product from '@/models/Product';
 import { verifyToken, extractTokenFromHeader } from '@/lib/auth';
 import { productSchema } from '@/lib/validations';
 import { rateLimit } from '@/lib/rateLimiter';
-import { setCache } from '@/lib/cache';
+import { setCache, clearCache } from '@/lib/cache';
 import mongoose from 'mongoose';
 
 /**
@@ -150,9 +150,8 @@ export async function PUT(
     }
     
     
-    // Invalidate cache
-    const cacheKey = `products:${user.companyName}`;
-    setCache(cacheKey, null);
+    // Invalidate ALL product cache entries for this company (including excludeSupplierId variants)
+    clearCache(`products:${user.companyName}`);
     
     
     return NextResponse.json({
@@ -231,8 +230,8 @@ export async function DELETE(
     }
     
     
-    const cacheKey = `products:${user.companyName}`;
-    setCache(cacheKey, null);
+    // Invalidate ALL product cache entries for this company
+    clearCache(`products:${user.companyName}`);
     
     
     return NextResponse.json({

@@ -228,41 +228,41 @@ export default function SuppliersPage() {
             }
           />
         ) : (
-          <AnimatedCard className="bg-gray-800/95 border border-gray-700">
+          <AnimatedCard className="!shadow-sm !p-0">
             <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-700">
+              <table className="min-w-full divide-y divide-gray-200">
                 <thead>
-                  <tr className="bg-gray-800/50">
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                  <tr className="bg-gray-50">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Supplier
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Contact Info
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Address
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Payment Terms
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Status
                     </th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-300 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Actions
                     </th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-700">
+                <tbody className="divide-y divide-gray-200">
                   {filteredSuppliers.map((supplier) => (
-                    <tr key={supplier._id} className="hover:bg-gray-800/50 transition-colors">
+                    <tr key={supplier._id} className="hover:bg-gray-50 transition-colors">
                       <td className="px-6 py-4">
                         <div className="flex items-center">
                           <div>
-                            <div className="text-sm font-medium text-white">
+                            <div className="text-sm font-medium text-gray-900">
                               {supplier.name}
                             </div>
-                            <div className="text-sm text-gray-400">
+                            <div className="text-sm text-gray-500">
                               {supplier.contactPerson}
                             </div>
                             {supplier.rating !== undefined && supplier.rating > 0 && (
@@ -276,25 +276,25 @@ export default function SuppliersPage() {
                         </div>
                       </td>
                       <td className="px-6 py-4">
-                        <div className="text-sm text-gray-200">{supplier.email}</div>
-                        <div className="text-sm text-gray-400">{supplier.phone}</div>
+                        <div className="text-sm text-gray-800">{supplier.email}</div>
+                        <div className="text-sm text-gray-500">{supplier.phone}</div>
                       </td>
                       <td className="px-6 py-4">
-                        <div className="text-sm text-gray-200 max-w-xs">
+                        <div className="text-sm text-gray-800 max-w-xs">
                           {formatAddress(supplier.address)}
                         </div>
-                        <div className="text-sm text-gray-400">{supplier.country}</div>
+                        <div className="text-sm text-gray-500">{supplier.country}</div>
                       </td>
                       <td className="px-6 py-4">
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-900/50 text-blue-300">
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700">
                           {supplier.paymentTerms}
                         </span>
                       </td>
                       <td className="px-6 py-4">
                         <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
                           supplier.isActive
-                            ? 'bg-green-900/50 text-green-300'
-                            : 'bg-gray-700 text-gray-300'
+                            ? 'bg-green-100 text-green-700'
+                            : 'bg-gray-100 text-gray-600'
                         }`}>
                           {supplier.isActive ? 'Active' : 'Inactive'}
                         </span>
@@ -313,10 +313,10 @@ export default function SuppliersPage() {
               </table>
             </div>
 
-            <div className="px-6 py-4 border-t border-gray-700">
-              <p className="text-sm text-gray-400">
-                Showing <span className="font-medium text-white">{filteredSuppliers.length}</span> of{' '}
-                <span className="font-medium text-white">{suppliers.length}</span> supplier
+            <div className="px-6 py-4 border-t border-gray-200">
+              <p className="text-sm text-gray-500">
+                Showing <span className="font-medium text-gray-900">{filteredSuppliers.length}</span> of{' '}
+                <span className="font-medium text-gray-900">{suppliers.length}</span> supplier
                 {suppliers.length !== 1 ? 's' : ''}
               </p>
             </div>

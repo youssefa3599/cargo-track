@@ -65,6 +65,66 @@ export async function GET(
 }
 
 /**
+ * DELETE /api/invoices/[id]
+ * Delete an invoice (only draft invoices can be deleted)
+ */
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const token =
+      request.cookies.get('token')?.value ||
+      request.headers.get('authorization')?.replace('Bearer ', '') ||
+      null;
+
+    if (!token) {
+      return NextResponse.json(
+        { error: 'Unauthorized - No token provided' },
+        { status: 401 }
+      );
+    }
+
+    const decoded = verifyToken(token) as AppJWTPayload | null;
+    if (!decoded) {
+      return NextResponse.json(
+        { error: 'Unauthorized - Invalid token' },
+        { status: 401 }
+      );
+    }
+
+    const { id } = params;
+    await dbConnect();
+
+    const invoice = await Invoice.findOne({
+      _id: id,
+      companyName: decoded.companyName,
+    });
+
+    if (!invoice) {
+      return NextResponse.json(
+        { error: 'Invoice not found' },
+        { status: 404 }
+      );
+    }
+
+    await Invoice.deleteOne({ _id: id });
+
+    return NextResponse.json({
+      success: true,
+      message: 'Invoice deleted successfully',
+    });
+
+  } catch (error: any) {
+    console.error('❌ Error deleting invoice:', error);
+    return NextResponse.json(
+      { error: 'Failed to delete invoice', message: error.message },
+      { status: 500 }
+    );
+  }
+}
+
+/**
  * PATCH /api/invoices/[id]
  * Update invoice (edit discount, notes, etc.)
  */

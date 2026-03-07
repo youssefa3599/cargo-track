@@ -1,3 +1,4 @@
+//src\app\invoices\page.tsx
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -23,6 +24,7 @@ const Download = LucideIcons.Download as any;
 const Send = LucideIcons.Send as any;
 const Eye = LucideIcons.Eye as any;
 const RefreshCw = LucideIcons.RefreshCw as any;
+const Trash2 = LucideIcons.Trash2 as any;
 
 // Types
 interface Shipment {
@@ -58,17 +60,17 @@ export default function InvoicesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [generating, setGenerating] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'shipments' | 'invoices'>('shipments');
   const [refreshing, setRefreshing] = useState(false);
 
-  // Redirect if not authenticated
   useEffect(() => {
     if (!isAuthenticated) {
       router.push('/login');
     }
   }, [isAuthenticated, router]);
 
-  // Fetch data on mount or refresh
   useEffect(() => {
     if (isAuthenticated && token) {
       fetchData();
@@ -85,7 +87,6 @@ export default function InvoicesPage() {
         fetch('/api/invoices', { headers: { Authorization: `Bearer ${token}` } }),
       ]);
 
-      // Parse shipments
       let shipmentsData: Shipment[] = [];
       if (shipmentsRes.ok) {
         const data = await shipmentsRes.json();
@@ -98,7 +99,6 @@ export default function InvoicesPage() {
         throw new Error('Failed to load shipments');
       }
 
-      // Parse invoices
       let invoicesData: Invoice[] = [];
       if (invoicesRes.ok) {
         const data = await invoicesRes.json();
@@ -108,7 +108,6 @@ export default function InvoicesPage() {
           ? data.invoices
           : [];
 
-        // FIX: map flat API fields (customerName, shipmentId) into nested objects
         invoicesData = rawInvoices.map((inv: any) => ({
           ...inv,
           id: inv._id || inv.id || inv.invoiceNumber,
@@ -138,17 +137,35 @@ export default function InvoicesPage() {
           Authorization: `Bearer ${token}`,
         },
       });
-
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         throw new Error(err.error || 'Failed to generate invoice');
       }
-
-      await fetchData(); // refresh
+      await fetchData();
     } catch (err: any) {
       setError(err.message || 'Failed to generate invoice');
     } finally {
       setGenerating(null);
+    }
+  };
+
+  const deleteInvoice = async (invoiceId: string) => {
+    setDeleting(invoiceId);
+    try {
+      const res = await fetch(`/api/invoices/${invoiceId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to delete invoice');
+      }
+      await fetchData();
+    } catch (err: any) {
+      setError(err.message || 'Failed to delete invoice');
+    } finally {
+      setDeleting(null);
+      setConfirmDelete(null);
     }
   };
 
@@ -221,6 +238,33 @@ export default function InvoicesPage() {
         <div className="absolute -top-40 -right-40 w-96 h-96 bg-blue-500 rounded-full mix-blend-overlay filter blur-3xl opacity-10 animate-blob" />
         <div className="absolute -bottom-40 -left-40 w-96 h-96 bg-cyan-500 rounded-full mix-blend-overlay filter blur-3xl opacity-10 animate-blob animation-delay-2000" />
       </div>
+
+      {/* Delete Confirmation Modal */}
+      {confirmDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white rounded-xl shadow-xl p-6 max-w-sm w-full mx-4">
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">Delete Invoice</h3>
+            <p className="text-sm text-gray-600 mb-6">
+              Are you sure you want to delete this invoice? This action cannot be undone.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setConfirmDelete(null)}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => deleteInvoice(confirmDelete)}
+                disabled={deleting === confirmDelete}
+                className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50"
+              >
+                {deleting === confirmDelete ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="relative">
         {/* Header */}
@@ -341,24 +385,12 @@ export default function InvoicesPage() {
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead>
                     <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Invoice #
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Customer
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Shipment
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Amount
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Status
-                      </th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Actions
-                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Invoice #</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Customer</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Shipment</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200">
@@ -410,6 +442,15 @@ export default function InvoicesPage() {
                             onClick={() => sendInvoice(invoice.id)}
                           >
                             Send
+                          </AnimatedButton>
+                          <AnimatedButton
+                            variant="ghost"
+                            size="sm"
+                            icon={<Trash2 className="w-4 h-4 text-red-500" />}
+                            onClick={() => setConfirmDelete(invoice.id)}
+                            disabled={deleting === invoice.id}
+                          >
+                            <span className="text-red-500">Delete</span>
                           </AnimatedButton>
                         </td>
                       </tr>

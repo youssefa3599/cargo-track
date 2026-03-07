@@ -5,7 +5,7 @@ import Product from '@/models/Product';
 import { verifyToken, extractTokenFromHeader } from '@/lib/auth';
 import { productSchema } from '@/lib/validations';
 import { rateLimit } from '@/lib/rateLimiter';
-import { getCache, setCache } from '@/lib/cache';
+import { getCache, setCache, clearCache } from '@/lib/cache';
 
 export async function GET(req: NextRequest) {
   try {
@@ -26,7 +26,7 @@ export async function GET(req: NextRequest) {
 
     const filter: any = { companyName: user.companyName };
     if (supplierId) filter.supplierId = supplierId;
-    else if (excludeSupplierId) filter.supplierId = { $ne: excludeSupplierId };
+    else if (excludeSupplierId) filter.supplierId = { $nin: [excludeSupplierId] };
 
     const cacheBase = `products:${user.companyName}`;
     const cacheKey  = excludeSupplierId
@@ -41,7 +41,7 @@ export async function GET(req: NextRequest) {
     }
 
     const products = await Product.find(filter)
-      .select('name description hsCode unitPrice dutyPercentage imageUrl imagePublicId companyName createdAt updatedAt')
+      .select('name description hsCode unitPrice dutyPercentage imageUrl imagePublicId supplierId companyName createdAt updatedAt')
       .sort({ createdAt: -1 })
       .lean();
 
@@ -85,8 +85,8 @@ export async function POST(req: NextRequest) {
       companyId:      user.companyId || user.userId,
     });
 
-    // Invalidate cache
-    setCache(`products:${user.companyName}`, null);
+    // Invalidate ALL product cache entries for this company
+    clearCache(`products:${user.companyName}`);
 
     return NextResponse.json(
       { success: true, message: 'Product created successfully', data: product },
