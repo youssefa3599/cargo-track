@@ -65,6 +65,10 @@ export async function GET(request: NextRequest) {
 
 // ── POST /api/shipments ───────────────────────────────────────────────────────
 export async function POST(request: NextRequest) {
+  console.log('\n' + '🚢'.repeat(100));
+  console.log('🚢 POST /api/shipments - CREATE NEW SHIPMENT');
+  console.log('🚢'.repeat(100));
+  
   try {
     const token = extractTokenFromHeader(request.headers.get('authorization'));
     if (!token) return NextResponse.json({ error: 'Authorization token required' }, { status: 401 });
@@ -73,12 +77,20 @@ export async function POST(request: NextRequest) {
     if (!user) return NextResponse.json({ error: 'Invalid or expired token' }, { status: 401 });
 
     const body = await request.json();
+    console.log('📦 Request body received:', JSON.stringify(body, null, 2));
+    
     const {
       origin, destination, shippingDate, estimatedArrival,
-      products, customerId, supplierId, carrier, trackingNumber,
+      products, customerId, customerName, supplierId, supplierName, carrier, trackingNumber,
       shippingCost, exchangeRate, currency, insurancePercentage,
       vatPercentage, weight, dimensions, notes, useWeightBased,
     } = body;
+
+    console.log('🔍 Extracted customer/supplier data:');
+    console.log('  customerId:', customerId);
+    console.log('  customerName:', customerName);
+    console.log('  supplierId:', supplierId);
+    console.log('  supplierName:', supplierName);
 
     if (!origin || !destination || !shippingDate || !estimatedArrival) {
       return NextResponse.json({ error: 'Missing required fields: origin, destination, shippingDate, estimatedArrival' }, { status: 400 });
@@ -123,6 +135,13 @@ export async function POST(request: NextRequest) {
 
     const shipmentId = `SHP-${Math.random().toString(36).substring(2, 9).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
 
+    console.log('💾 Creating shipment object with data:');
+    console.log('  shipmentId:', shipmentId);
+    console.log('  customerId:', customerId);
+    console.log('  customerName:', customerName);
+    console.log('  supplierId:', supplierId);
+    console.log('  supplierName:', supplierName);
+
     const shipment = new Shipment({
       companyName:      user.companyName,
       companyId:        user.companyId,
@@ -135,8 +154,11 @@ export async function POST(request: NextRequest) {
         productId: new mongoose.Types.ObjectId(p.productId),
         quantity:  p.quantity,
       })),
+      // 🔥🔥🔥 CRITICAL FIX: Save both ID and NAME for customer/supplier
       customerId:    customerId  ? new mongoose.Types.ObjectId(customerId)  : undefined,
+      customerName:  customerName || undefined,  // ✅ NOW SAVING customerName!
       supplierId:    supplierId  ? new mongoose.Types.ObjectId(supplierId)  : undefined,
+      supplierName:  supplierName || undefined,  // ✅ NOW SAVING supplierName!
       carrier:       carrier     || undefined,
       trackingNumber: trackingNumber || undefined,
       status:        'pending',
@@ -156,7 +178,9 @@ export async function POST(request: NextRequest) {
       }],
     });
 
+    console.log('✅ Shipment object created, calling save()...');
     await shipment.save();
+    console.log('✅ Shipment saved to database');
 
     const populated = await Shipment.findById(shipment._id)
       .populate('products.productId', 'name hsCode unitPrice dutyPercentage')
@@ -164,10 +188,18 @@ export async function POST(request: NextRequest) {
       .populate('statusHistory.changedBy', 'email role')
       .lean();
 
+    console.log('📤 Returning populated shipment:');
+    console.log('  customerName:', populated?.customerName);
+    console.log('  supplierName:', populated?.supplierName);
+    console.log('🚢'.repeat(100) + '\n');
+
     return NextResponse.json({ success: true, message: 'Shipment created successfully', data: populated, shipment: populated }, { status: 201 });
 
   } catch (error: any) {
-    console.error('[POST /api/shipments]', error.message);
+    console.error('💥 [POST /api/shipments] ERROR:', error.message);
+    console.error('Stack:', error.stack);
+    console.log('🚢'.repeat(100) + '\n');
+    
     if (error.name === 'ValidationError') {
       return NextResponse.json({ error: 'Validation failed', details: error.message }, { status: 400 });
     }

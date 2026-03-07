@@ -525,6 +525,9 @@ export default function CreateShipment() {
       }
     } else if (name === 'customerId') {
       const customer = customers.find(c => c._id === value);
+      console.log('🔥🔥🔥 CUSTOMER SELECTED!');
+      console.log('  Customer ID:', value);
+      console.log('  Customer Name:', customer?.name);
       setFormData({
         ...formData,
         customerId: value,
@@ -532,6 +535,9 @@ export default function CreateShipment() {
       });
     } else if (name === 'supplierId') {
       const supplier = suppliers.find(s => s._id === value);
+      console.log('🔥🔥🔥 SUPPLIER SELECTED!');
+      console.log('  Supplier ID:', value);
+      console.log('  Supplier Name:', supplier?.name);
       setFormData({
         ...formData,
         supplierId: value,
@@ -673,19 +679,25 @@ export default function CreateShipment() {
         customsDuty: financials.totalCustomsDuty,
         insurance: financials.insurance,
         vat: financials.vat,
+        
+        // 🔥🔥🔥 CRITICAL FIX: Always include customer/supplier names (matching edit page behavior)
+        // This ensures the list page can display customer names immediately
+        customerId: formData.customerId || null,
+        customerName: formData.customerName || '',
+        supplierId: formData.supplierId || null,
+        supplierName: formData.supplierName || '',
       };
 
       console.log('🔥 CRITICAL FIELDS IN SHIPMENT DATA:');
       console.log('  shippingCost:', shipmentData.shippingCost, '← This is', formData.useWeightBasedShipping ? 'WEIGHT (kg)' : 'MANUAL COST (USD)');
       console.log('  useWeightBased:', shipmentData.useWeightBased);
-      console.log('  weight (if stored separately):', formData.weight);
+      console.log('  customerId:', shipmentData.customerId);
+      console.log('  customerName:', shipmentData.customerName);
+      console.log('  supplierId:', shipmentData.supplierId);
+      console.log('  supplierName:', shipmentData.supplierName);
 
       if (formData.carrier) shipmentData.carrier = formData.carrier;
       if (formData.trackingNumber) shipmentData.trackingNumber = formData.trackingNumber;
-      if (formData.customerId) shipmentData.customerId = formData.customerId;
-      if (formData.customerName) shipmentData.customerName = formData.customerName;
-      if (formData.supplierId) shipmentData.supplierId = formData.supplierId;
-      if (formData.supplierName) shipmentData.supplierName = formData.supplierName;
       if (formData.weight) shipmentData.weight = parseFloat(formData.weight);
       if (formData.estimatedDelivery) shipmentData.estimatedDelivery = formData.estimatedDelivery;
       if (formData.notes) shipmentData.notes = formData.notes;
@@ -700,6 +712,11 @@ export default function CreateShipment() {
 
       console.log('\n📤 FINAL SHIPMENT DATA TO BE SENT:');
       console.log(JSON.stringify(shipmentData, null, 2));
+      console.log('\n🔍 CUSTOMER/SUPPLIER VERIFICATION:');
+      console.log('  customerId:', shipmentData.customerId, '(type:', typeof shipmentData.customerId, ')');
+      console.log('  customerName:', shipmentData.customerName, '(type:', typeof shipmentData.customerName, ')');
+      console.log('  supplierId:', shipmentData.supplierId, '(type:', typeof shipmentData.supplierId, ')');
+      console.log('  supplierName:', shipmentData.supplierName, '(type:', typeof shipmentData.supplierName, ')');
       console.log('📦'.repeat(50) + '\n');
 
       console.log('🌐 SENDING API REQUEST...');
@@ -800,11 +817,15 @@ export default function CreateShipment() {
             <div>Weight: <strong>{formData.weight || 'EMPTY'} kg</strong></div>
             <div>Manual Shipping: <strong>${formData.shippingCost || 'EMPTY'}</strong></div>
             <div>Exchange Rate: <strong>{formData.exchangeRate}</strong></div>
+            <div>Customer ID: <strong>{formData.customerId || 'EMPTY'}</strong></div>
+            <div>Customer Name: <strong>{formData.customerName || 'EMPTY'}</strong></div>
           </div>
           <div className="mt-2 p-2 bg-red-950/50 rounded text-xs text-red-200">
             <strong>What will be sent to backend:</strong><br/>
             shippingCost = {formData.useWeightBasedShipping ? `${formData.weight} (as weight)` : `${formData.shippingCost} (as manual cost)`}<br/>
-            useWeightBased = {formData.useWeightBasedShipping.toString()}
+            useWeightBased = {formData.useWeightBasedShipping.toString()}<br/>
+            customerId = {formData.customerId || 'EMPTY'}<br/>
+            customerName = {formData.customerName || 'EMPTY'}
           </div>
         </div>
 
@@ -1281,6 +1302,11 @@ export default function CreateShipment() {
                       </option>
                     ))}
                   </select>
+                  {formData.customerName && (
+                    <p className="text-xs text-green-400 mt-1">
+                      ✓ Selected: {formData.customerName}
+                    </p>
+                  )}
                 </div>
                 <div>
                   <label className="dark-form-label">Supplier</label>
@@ -1297,6 +1323,11 @@ export default function CreateShipment() {
                       </option>
                     ))}
                   </select>
+                  {formData.supplierName && (
+                    <p className="text-xs text-green-400 mt-1">
+                      ✓ Selected: {formData.supplierName}
+                    </p>
+                  )}
                 </div>
               </div>
             </div>

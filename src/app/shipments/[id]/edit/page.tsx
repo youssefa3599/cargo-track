@@ -74,7 +74,7 @@ interface Shipment {
   customerPayment?: number;
   serviceMarkup?: number;
   products: Array<{
-    productId: { _id: string } | string;
+    productId: { _id: string } | string | null;
     quantity: number;
   }>;
   status: string;
@@ -112,7 +112,6 @@ const calculateFinancials = (
   vatPercentage: number,
   serviceMarkup: number
 ): FinancialCalculation => {
-  // Calculate total product value (USD)
   let totalProductValue = 0;
   selectedProducts.forEach(sp => {
     const product = products.find(p => p._id === sp.productId);
@@ -121,10 +120,8 @@ const calculateFinancials = (
     }
   });
 
-  // Convert to EGP
   const totalProductCostEGP = totalProductValue * exchangeRate;
-  
-  // Calculate customs duties (product-specific)
+
   let totalCustomsDuty = 0;
   selectedProducts.forEach(sp => {
     const product = products.find(p => p._id === sp.productId);
@@ -134,25 +131,14 @@ const calculateFinancials = (
     }
   });
 
-  // Calculate insurance (% of product cost)
   const insurance = totalProductCostEGP * (insurancePercentage / 100);
-  
-  // Calculate VAT (applied on product cost + duty)
   const vatBase = totalProductCostEGP + totalCustomsDuty;
   const vat = vatBase * (vatPercentage / 100);
-  
-  // Shipping cost in EGP
   const shippingCostEGP = shippingCost * exchangeRate;
-  
-  // Total cost to you
   const totalCost = totalProductCostEGP + totalCustomsDuty + insurance + vat + shippingCostEGP;
-  
-  // What you charge the customer (cost + markup)
   const customerPayment = totalCost * (1 + serviceMarkup / 100);
-  
-  // Your profit
   const profit = customerPayment - totalCost;
-  
+
   return {
     totalProductValue,
     totalProductCostEGP,
@@ -164,6 +150,13 @@ const calculateFinancials = (
     customerPayment,
     profit
   };
+};
+
+// ✅ FIXED: safely extract productId regardless of shape (object, string, or null)
+const extractProductId = (productId: { _id: string } | string | null | undefined): string => {
+  if (!productId) return '';
+  if (typeof productId === 'object' && productId !== null) return productId._id || '';
+  return productId;
 };
 
 export default function EditShipmentPage() {
@@ -214,7 +207,6 @@ export default function EditShipmentPage() {
     { productId: '', quantity: 1 }
   ]);
 
-  // 💰 AUTO-CALCULATED FINANCIALS
   const [financials, setFinancials] = useState<FinancialCalculation>({
     totalProductValue: 0,
     totalProductCostEGP: 0,
@@ -239,7 +231,6 @@ export default function EditShipmentPage() {
     fetchAllData();
   }, [shipmentId, isAuthenticated, router]);
 
-  // 💰 RECALCULATE FINANCIALS WHEN INPUTS CHANGE
   useEffect(() => {
     const calculated = calculateFinancials(
       selectedProducts,
@@ -252,7 +243,7 @@ export default function EditShipmentPage() {
     );
     setFinancials(calculated);
     console.log('💰 Recalculated financials:', calculated);
-  }, [selectedProducts, products, formData.shippingCost, formData.exchangeRate, 
+  }, [selectedProducts, products, formData.shippingCost, formData.exchangeRate,
       formData.insurancePercentage, formData.vatPercentage, formData.serviceMarkup]);
 
   const fetchAllData = async () => {
@@ -303,8 +294,33 @@ export default function EditShipmentPage() {
         ? new Date(loadedShipment.estimatedArrival).toISOString().split('T')[0]
         : '';
 
+      // Normalize status: Mongoose uses hyphens (in-transit), not underscores (in_transit)
+      const normalizeStatus = (s: string) => (s || 'pending').replace(/_/g, '-');
+
+      // Load customers + suppliers FIRST so we can resolve names immediately
+      let customersList: Customer[] = [];
+      let suppliersList: Supplier[] = [];
+
+      if (customersRes.ok) {
+        const customersData = await customersRes.json();
+        customersList = customersData.customers || customersData.data || [];
+        if (!Array.isArray(customersList)) customersList = [];
+        setCustomers(customersList);
+      }
+
+      if (suppliersRes.ok) {
+        const suppliersData = await suppliersRes.json();
+        suppliersList = suppliersData.suppliers || suppliersData.data || [];
+        if (!Array.isArray(suppliersList)) suppliersList = [];
+        setSuppliers(suppliersList);
+      }
+
+      // Resolve names from lists in case the DB only stored ID
+      const matchedCustomer = customersList.find((c: Customer) => c._id === loadedShipment.customerId);
+      const matchedSupplier = suppliersList.find((s: Supplier) => s._id === loadedShipment.supplierId);
+
       setFormData({
-        status: loadedShipment.status || 'pending',
+        status: normalizeStatus(loadedShipment.status),
         currentLocation: loadedShipment.currentLocation || '',
         origin: loadedShipment.origin || '',
         destination: loadedShipment.destination || '',
@@ -313,9 +329,9 @@ export default function EditShipmentPage() {
         carrier: loadedShipment.carrier || '',
         trackingNumber: loadedShipment.trackingNumber || '',
         customerId: loadedShipment.customerId || '',
-        customerName: loadedShipment.customerName || '',
+        customerName: loadedShipment.customerName || matchedCustomer?.name || '',
         supplierId: loadedShipment.supplierId || '',
-        supplierName: loadedShipment.supplierName || '',
+        supplierName: loadedShipment.supplierName || matchedSupplier?.name || '',
         weight: loadedShipment.weight?.toString() || '',
         dimensionLength: loadedShipment.dimensions?.length?.toString() || '',
         dimensionWidth: loadedShipment.dimensions?.width?.toString() || '',
@@ -329,10 +345,14 @@ export default function EditShipmentPage() {
         serviceMarkup: loadedShipment.serviceMarkup?.toString() || '15',
       });
 
-      const loadedProducts = loadedShipment.products?.map((p: any) => ({
-        productId: typeof p.productId === 'object' ? p.productId._id : p.productId,
-        quantity: p.quantity
-      })) || [];
+      // ✅ FIXED: use extractProductId to safely handle null, object, or string productId
+      const loadedProducts = (loadedShipment.products || [])
+        .map((p: any) => ({
+          productId: extractProductId(p.productId),
+          quantity: p.quantity || 1
+        }))
+        .filter((p: ShipmentProduct) => p.productId !== ''); // skip null/missing productIds
+
       setSelectedProducts(loadedProducts.length > 0 ? loadedProducts : [{ productId: '', quantity: 1 }]);
 
       if (productsRes.ok) {
@@ -341,17 +361,7 @@ export default function EditShipmentPage() {
         setProducts(Array.isArray(productsList) ? productsList : []);
       }
 
-      if (customersRes.ok) {
-        const customersData = await customersRes.json();
-        const customersList = customersData.customers || customersData.data || [];
-        setCustomers(Array.isArray(customersList) ? customersList : []);
-      }
-
-      if (suppliersRes.ok) {
-        const suppliersData = await suppliersRes.json();
-        const suppliersList = suppliersData.suppliers || suppliersData.data || [];
-        setSuppliers(Array.isArray(suppliersList) ? suppliersList : []);
-      }
+      // customers and suppliers already loaded above
 
       console.log('✅ All data loaded successfully');
     } catch (error: any) {
@@ -369,6 +379,7 @@ export default function EditShipmentPage() {
       setFormData({
         ...formData,
         customerId: value,
+        // ✅ Always sync customerName with the selected customer
         customerName: customer?.name || ''
       });
     } else if (name === 'supplierId') {
@@ -376,6 +387,7 @@ export default function EditShipmentPage() {
       setFormData({
         ...formData,
         supplierId: value,
+        // ✅ Always sync supplierName with the selected supplier
         supplierName: supplier?.name || ''
       });
     } else {
@@ -451,7 +463,7 @@ export default function EditShipmentPage() {
         insurancePercentage: parseFloat(formData.insurancePercentage) || 2,
         vatPercentage: parseFloat(formData.vatPercentage) || 14,
         serviceMarkup: parseFloat(formData.serviceMarkup) || 15,
-        
+
         // 💰 AUTO-CALCULATED FINANCIALS
         customerPayment: financials.customerPayment,
         profit: financials.profit,
@@ -459,14 +471,16 @@ export default function EditShipmentPage() {
         customsDuty: financials.totalCustomsDuty,
         insurance: financials.insurance,
         vat: financials.vat,
+
+        // ✅ Always include customer/supplier name so list page can display them
+        customerId: formData.customerId || null,
+        customerName: formData.customerName || '',
+        supplierId: formData.supplierId || null,
+        supplierName: formData.supplierName || '',
       };
 
       if (formData.carrier) updateData.carrier = formData.carrier;
       if (formData.trackingNumber) updateData.trackingNumber = formData.trackingNumber;
-      if (formData.customerId) updateData.customerId = formData.customerId;
-      if (formData.customerName) updateData.customerName = formData.customerName;
-      if (formData.supplierId) updateData.supplierId = formData.supplierId;
-      if (formData.supplierName) updateData.supplierName = formData.supplierName;
       if (formData.weight) updateData.weight = parseFloat(formData.weight);
       if (formData.notes) updateData.notes = formData.notes;
       if (formData.dimensionLength || formData.dimensionWidth || formData.dimensionHeight) {
@@ -563,7 +577,6 @@ export default function EditShipmentPage() {
         <div className="absolute inset-0 bg-gradient-to-br from-gray-900/85 via-blue-900/80 to-gray-900/85" />
       </div>
 
-      {/* Subtle animated accents */}
       <div className="fixed inset-0 overflow-hidden -z-10 pointer-events-none">
         <div className="absolute -top-40 -right-40 w-96 h-96 bg-blue-500 rounded-full mix-blend-overlay filter blur-3xl opacity-10 animate-blob" />
         <div className="absolute -bottom-40 -left-40 w-96 h-96 bg-cyan-500 rounded-full mix-blend-overlay filter blur-3xl opacity-10 animate-blob animation-delay-2000" />
@@ -670,6 +683,7 @@ export default function EditShipmentPage() {
                     <option value="customs">🛃 At Customs</option>
                     <option value="delivered">✅ Delivered</option>
                     <option value="cancelled">❌ Cancelled</option>
+                    {/* Legacy underscore values - map to hyphen on load */}
                   </select>
                   {shipment && (
                     <p className="mt-1 text-xs text-gray-400">
@@ -783,13 +797,10 @@ export default function EditShipmentPage() {
                   <h3 className="text-sm font-semibold text-gray-300 mb-3 flex items-center gap-2">
                     💰 Revenue & Profit (Auto-Calculated)
                   </h3>
-                  
+
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {/* Service Markup - User can adjust */}
                     <div>
-                      <label className="dark-form-label">
-                        Service Markup (%)
-                      </label>
+                      <label className="dark-form-label">Service Markup (%)</label>
                       <input
                         type="number"
                         name="serviceMarkup"
@@ -801,12 +812,9 @@ export default function EditShipmentPage() {
                         min="0"
                         max="100"
                       />
-                      <p className="text-xs text-gray-400 mt-1">
-                        💡 Adjust to change profit margin
-                      </p>
+                      <p className="text-xs text-gray-400 mt-1">💡 Adjust to change profit margin</p>
                     </div>
 
-                    {/* Cost Breakdown - Read-only display */}
                     <div className="bg-gray-800/50 p-4 rounded-lg border border-gray-700">
                       <h4 className="text-xs font-semibold text-gray-400 mb-2">Cost Breakdown (EGP)</h4>
                       <div className="space-y-1 text-sm">
@@ -837,7 +845,6 @@ export default function EditShipmentPage() {
                       </div>
                     </div>
 
-                    {/* Revenue & Profit Display - Read-only */}
                     <div className="md:col-span-2 bg-gradient-to-r from-green-900/30 to-blue-900/30 p-4 rounded-lg border border-green-700/50">
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-center">
                         <div>
@@ -854,9 +861,7 @@ export default function EditShipmentPage() {
                           <p className="text-2xl font-bold text-blue-400">
                             {financials.profit.toFixed(2)} EGP
                           </p>
-                          <p className="text-xs text-gray-400 mt-1">
-                            Margin: {formData.serviceMarkup}%
-                          </p>
+                          <p className="text-xs text-gray-400 mt-1">Margin: {formData.serviceMarkup}%</p>
                         </div>
                         <div>
                           <p className="text-xs text-gray-400 mb-1">Profit (USD)</p>
@@ -978,6 +983,9 @@ export default function EditShipmentPage() {
                       </option>
                     ))}
                   </select>
+                  {formData.customerName && (
+                    <p className="mt-1 text-xs text-green-400">✓ {formData.customerName}</p>
+                  )}
                 </div>
                 <div>
                   <label className="dark-form-label">Supplier</label>
@@ -994,6 +1002,9 @@ export default function EditShipmentPage() {
                       </option>
                     ))}
                   </select>
+                  {formData.supplierName && (
+                    <p className="mt-1 text-xs text-green-400">✓ {formData.supplierName}</p>
+                  )}
                 </div>
               </div>
             </div>
@@ -1060,10 +1071,7 @@ export default function EditShipmentPage() {
 
             {/* Submit Buttons */}
             <div className="flex gap-4 justify-end pt-4 border-t border-gray-700">
-              <Link
-                href="/shipments"
-                className="dark-form-button-secondary"
-              >
+              <Link href="/shipments" className="dark-form-button-secondary">
                 Cancel
               </Link>
               <button

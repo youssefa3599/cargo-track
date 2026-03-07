@@ -285,14 +285,14 @@ export default function ShipmentsPage() {
       }
     },
     {
-      key: 'estimatedDelivery',
-      label: 'Est. Delivery',
-      render: (value: string) => (
-        <div className="text-sm text-gray-700">
-          {value ? new Date(value).toLocaleDateString() : '-'}
-        </div>
-      )
-    },
+  key: 'estimatedArrival',
+  label: 'Estimated Arrival',
+  render: (value: string) => (
+    <div className="text-sm text-gray-700">
+      {value ? new Date(value).toLocaleDateString() : '-'}
+    </div>
+  )
+},
     {
       key: 'actions',
       label: 'Actions',

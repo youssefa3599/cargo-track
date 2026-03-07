@@ -396,3 +396,78 @@ export async function PUT(
     return NextResponse.json({ error: 'Failed to update shipment', details: error.message }, { status: 500 });
   }
 }
+/**
+ * DELETE /api/shipments/:id
+ * Delete a shipment by ID
+ */
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const token = extractTokenFromHeader(request.headers.get('authorization'));
+    
+    if (!token) {
+      console.error('❌ No token provided');
+      return NextResponse.json(
+        { error: 'Authorization token required' },
+        { status: 401 }
+      );
+    }
+
+    const user = verifyToken(token);
+    
+    if (!user) {
+      console.error('❌ Token verification failed');
+      return NextResponse.json(
+        { error: 'Invalid or expired token' },
+        { status: 401 }
+      );
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(params.id)) {
+      console.error('❌ Invalid shipment ID format:', params.id);
+      return NextResponse.json(
+        { error: 'Invalid shipment ID format' },
+        { status: 400 }
+      );
+    }
+
+    await dbConnect();
+
+    // Find and delete the shipment (only if it belongs to user's company)
+    const shipment = await Shipment.findOneAndDelete({
+      _id: params.id,
+      companyName: user.companyName
+    });
+
+    if (!shipment) {
+      console.error('❌ Shipment not found or unauthorized');
+      console.error('   Searched for ID:', params.id);
+      console.error('   In company:', user.companyName);
+      return NextResponse.json(
+        { error: 'Shipment not found or you do not have permission to delete it' },
+        { status: 404 }
+      );
+    }
+
+    console.log('✅ Shipment deleted successfully:', params.id);
+
+    return NextResponse.json({
+      success: true,
+      message: 'Shipment deleted successfully',
+      data: { id: params.id }
+    });
+
+  } catch (error: any) {
+    console.error('💥💥💥 DELETE SHIPMENT ERROR 💥💥💥');
+    console.error('Error type:', error.constructor.name);
+    console.error('Error message:', error.message);
+    console.error('Error stack:', error.stack);
+    
+    return NextResponse.json(
+      { error: 'Failed to delete shipment' },
+      { status: 500 }
+    );
+  }
+}

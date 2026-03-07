@@ -108,10 +108,13 @@ export default function InvoicesPage() {
           ? data.invoices
           : [];
 
+        // FIX: map flat API fields (customerName, shipmentId) into nested objects
         invoicesData = rawInvoices.map((inv: any) => ({
           ...inv,
-          id: inv._id || inv.id || inv.invoiceNumber, // fallback ID
-        })).filter((inv: any) => inv.id); // ensure valid ID
+          id: inv._id || inv.id || inv.invoiceNumber,
+          customer: { name: inv.customerName || inv.customer?.name || '' },
+          shipment: { trackingNumber: inv.shipmentTrackingNumber || inv.shipment?.trackingNumber || inv.shipmentId || '' },
+        })).filter((inv: any) => inv.id);
       }
 
       setShipments(shipmentsData);
@@ -220,14 +223,13 @@ export default function InvoicesPage() {
       </div>
 
       <div className="relative">
-        {/* Header — now includes Refresh button beside Generate Invoice */}
+        {/* Header */}
         <PageHeader
           icon={<FileText className="w-8 h-8" />}
           title="Invoice Management"
           description={`Manage and generate invoices (${invoices.length} total)`}
           actions={
             <div className="flex gap-2">
-              
               <AnimatedButton
                 variant="secondary"
                 icon={<RefreshCw className={`w-5 h-5 ${refreshing ? 'animate-spin' : ''}`} />}
