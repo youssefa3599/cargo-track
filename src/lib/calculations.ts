@@ -42,12 +42,16 @@ export interface ShipmentCosts {
   productCost: number;
   shippingCost: number;
   insuranceCost: number;
+  insurancePercentage: number;
   totalDuty: number;
   vat: number;
+  vatPercentage: number;
   totalLandedCost: number;
   totalLandedCostEGP: number;
   totalQuantity: number;
   costPerUnit: number;
+  costPerUnitEGP: number;
+  exchangeRate: number;
   products: ProductCostLine[];
 }
 
@@ -301,16 +305,22 @@ export function calculateShipmentCosts(
     dutyAmount: calculateProductDuty(p.quantity, p.unitPrice, p.dutyPercentage),
   }));
 
+  const costPerUnitEGP = calculateCostPerUnit(totalLandedCostEGP, totalQuantity);
+
   return {
     productCost,
     shippingCost,
     insuranceCost,
+    insurancePercentage: insurancePercent,
     totalDuty,
     vat,
+    vatPercentage: vatPercent,
     totalLandedCost,
     totalLandedCostEGP,
     totalQuantity,
     costPerUnit,
+    costPerUnitEGP,
+    exchangeRate,
     products: productLines,
   };
 }
