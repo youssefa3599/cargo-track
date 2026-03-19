@@ -22,7 +22,7 @@ export interface IStatusHistory {
 export interface IProductCalculation {
   productId: string;
   productName: string;
-  hsCode: string;
+  hsCode?: string;
   quantity: number;
   unitPrice: number;
   totalProductCost: number;
