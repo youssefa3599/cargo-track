@@ -1,8 +1,10 @@
+//src\app\layout.tsx
 import type { Metadata } from "next";
 import { Inter, Roboto_Mono } from "next/font/google";
 import "./styles/globals.css";
 import { AuthProvider } from "@/context/AuthContext";
-import Navigation from "@/components/navigation";  // ✅ FIX: Capital N
+import Navigation from "@/components/navigation";
+import AIAssistant from "@/components/AIAssistant";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -28,10 +30,11 @@ export default function RootLayout({
     <html lang="en">
       <body className={`${inter.variable} ${robotoMono.variable} antialiased`}>
         <AuthProvider>
-          <Navigation />  {/* ✅ FIX: Capital N */}
+          <Navigation />
           <main className="min-h-screen">
             {children}
           </main>
+          <AIAssistant />
         </AuthProvider>
       </body>
     </html>

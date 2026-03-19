@@ -93,6 +93,30 @@ interface FinancialCalculation {
   profit: number;
 }
 
+// ✅ Status transition map — must match validations.ts STATUS_TRANSITIONS
+const STATUS_TRANSITIONS: Record<string, string[]> = {
+  'pending':   ['in-transit', 'cancelled'],
+  'in-transit': ['customs', 'delivered', 'cancelled'],
+  'customs':   ['delivered', 'cancelled'],
+  'delivered': [],
+  'cancelled': [],
+};
+
+/** Returns statuses the user is allowed to move TO from currentStatus */
+function getAllowedStatusOptions(currentStatus: string): string[] {
+  const forward = STATUS_TRANSITIONS[currentStatus] ?? [];
+  // always include the current status itself (no-op change)
+  return [currentStatus, ...forward];
+}
+
+const STATUS_LABELS: Record<string, string> = {
+  'pending':    '📦 Pending',
+  'in-transit': '🚚 In Transit',
+  'customs':    '🛃 At Customs',
+  'delivered':  '✅ Delivered',
+  'cancelled':  '❌ Cancelled',
+};
+
 const getAuthToken = (): string | null => {
   const cookies = document.cookie.split(';');
   for (const cookie of cookies) {
@@ -112,6 +136,7 @@ const calculateFinancials = (
   vatPercentage: number,
   serviceMarkup: number
 ): FinancialCalculation => {
+  // Step 1: Total product value in USD
   let totalProductValue = 0;
   selectedProducts.forEach(sp => {
     const product = products.find(p => p._id === sp.productId);
@@ -120,21 +145,32 @@ const calculateFinancials = (
     }
   });
 
+  // Step 2: Convert product value to EGP
   const totalProductCostEGP = totalProductValue * exchangeRate;
 
-  let totalCustomsDuty = 0;
+  // Step 3: Customs duty — calculated on USD product value first, then converted to EGP
+  // (matches backend calculateProductDuty which works in USD before the final EGP conversion)
+  let totalCustomsDutyUSD = 0;
   selectedProducts.forEach(sp => {
     const product = products.find(p => p._id === sp.productId);
     if (product && product.dutyPercentage && sp.quantity > 0) {
-      const productCostEGP = product.unitPrice * sp.quantity * exchangeRate;
-      totalCustomsDuty += productCostEGP * (product.dutyPercentage / 100);
+      const productValueUSD = product.unitPrice * sp.quantity;
+      totalCustomsDutyUSD += productValueUSD * (product.dutyPercentage / 100);
     }
   });
+  const totalCustomsDuty = totalCustomsDutyUSD * exchangeRate;
 
+  // Step 4: Insurance on product cost EGP
   const insurance = totalProductCostEGP * (insurancePercentage / 100);
-  const vatBase = totalProductCostEGP + totalCustomsDuty;
-  const vat = vatBase * (vatPercentage / 100);
+
+  // Step 5: Shipping cost in EGP
   const shippingCostEGP = shippingCost * exchangeRate;
+
+  // Step 6: VAT base = products + duty + insurance + shipping (matches backend calculateVAT)
+  const vatBase = totalProductCostEGP + totalCustomsDuty + insurance + shippingCostEGP;
+  const vat = vatBase * (vatPercentage / 100);
+
+  // Step 7: Total cost and profit
   const totalCost = totalProductCostEGP + totalCustomsDuty + insurance + vat + shippingCostEGP;
   const customerPayment = totalCost * (1 + serviceMarkup / 100);
   const profit = customerPayment - totalCost;
@@ -153,6 +189,8 @@ const calculateFinancials = (
 };
 
 // ✅ FIXED: safely extract productId regardless of shape (object, string, or null)
+const isFinalStatus = (status: string) => status === 'delivered' || status === 'cancelled';
+
 const extractProductId = (productId: { _id: string } | string | null | undefined): string => {
   if (!productId) return '';
   if (typeof productId === 'object' && productId !== null) return productId._id || '';
@@ -468,7 +506,8 @@ export default function EditShipmentPage() {
         customerPayment: financials.customerPayment,
         profit: financials.profit,
         totalCost: financials.totalCost,
-        customsDuty: financials.totalCustomsDuty,
+        customsDuty: financials.totalCustomsDuty,   // saved as customsDuty on the model
+        totalCustomsDuty: financials.totalCustomsDuty, // also saved for [id] display page
         insurance: financials.insurance,
         vat: financials.vat,
 
@@ -677,14 +716,17 @@ export default function EditShipmentPage() {
                     onChange={handleInputChange}
                     className="dark-form-select"
                     required
+                    disabled={isFinalStatus(shipment?.status ?? '')}
                   >
-                    <option value="pending">📦 Pending</option>
-                    <option value="in-transit">🚚 In Transit</option>
-                    <option value="customs">🛃 At Customs</option>
-                    <option value="delivered">✅ Delivered</option>
-                    <option value="cancelled">❌ Cancelled</option>
-                    {/* Legacy underscore values - map to hyphen on load */}
+                    {getAllowedStatusOptions(shipment?.status ?? formData.status).map(s => (
+                      <option key={s} value={s}>{STATUS_LABELS[s] ?? s}</option>
+                    ))}
                   </select>
+                  {isFinalStatus(shipment?.status ?? '') && (
+                    <p className="mt-1 text-xs text-red-400">
+                      🔒 This shipment is {shipment?.status} and cannot be changed.
+                    </p>
+                  )}
                   {shipment && (
                     <p className="mt-1 text-xs text-gray-400">
                       Current: <span className="font-medium capitalize">{shipment.status.replace('-', ' ')}</span>

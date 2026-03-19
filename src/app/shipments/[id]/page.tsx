@@ -61,6 +61,7 @@ interface Shipment {
   totalProductValue?: number;
   totalProductCostEGP?: number;
   totalCustomsDuty?: number;
+  customsDuty?: number;
   insurance?: number;
   vat?: number;
   shippingCostEGP?: number;
@@ -465,16 +466,16 @@ export default function ShipmentDetailPage() {
             </AnimatedCard>
 
             {/* Additional Costs */}
-            {(shipment.totalCustomsDuty || shipment.insurance || shipment.vat) && (
+            {((shipment.customsDuty ?? shipment.totalCustomsDuty) || shipment.insurance || shipment.vat) && (
               <AnimatedCard>
                 <div className="p-6">
                   <h2 className="text-lg font-semibold text-teal-400 mb-4">Cost Breakdown</h2>
                   <div className="space-y-2 text-sm">
-                    {shipment.totalCustomsDuty !== undefined && (
+                    {(shipment.customsDuty ?? shipment.totalCustomsDuty) !== undefined && (
                       <div className="flex justify-between">
                         <span className="text-teal-600">Customs Duty</span>
                         <span className="text-teal-300">
-                          {shipment.totalCustomsDuty.toFixed(2)} EGP
+                          {(shipment.customsDuty ?? shipment.totalCustomsDuty)!.toFixed(2)} EGP
                         </span>
                       </div>
                     )}

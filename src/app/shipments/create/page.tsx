@@ -202,36 +202,37 @@ const calculateFinancials = (
   const totalProductCostEGP = totalProductValue * exchangeRate;
   console.log('  ✅ Total Product Cost (EGP):', totalProductCostEGP);
 
-  // Calculate customs duties (product-specific)
-  let totalCustomsDuty = 0;
+  // Calculate customs duties — on USD product value first, then convert to EGP (matches backend)
+  let totalCustomsDutyUSD = 0;
   console.log('\n📜 CALCULATING CUSTOMS DUTIES:');
   selectedProducts.forEach((sp, idx) => {
     const product = products.find(p => p._id === sp.productId);
     if (product && product.dutyPercentage && sp.quantity > 0) {
-      const productCostEGP = product.unitPrice * sp.quantity * exchangeRate;
-      const duty = productCostEGP * (product.dutyPercentage / 100);
-      console.log(`  [${idx}] ${product.name}: ${productCostEGP} × ${product.dutyPercentage}% = ${duty}`);
-      totalCustomsDuty += duty;
+      const productValueUSD = product.unitPrice * sp.quantity;
+      const dutyUSD = productValueUSD * (product.dutyPercentage / 100);
+      console.log(`  [${idx}] ${product.name}: ${productValueUSD} USD × ${product.dutyPercentage}% = ${dutyUSD} USD`);
+      totalCustomsDutyUSD += dutyUSD;
     }
   });
+  const totalCustomsDuty = totalCustomsDutyUSD * exchangeRate;
   console.log('  ✅ Total Customs Duty (EGP):', totalCustomsDuty);
 
-  // Calculate insurance (% of product cost)
+  // Calculate insurance (% of product cost EGP)
   const insurance = totalProductCostEGP * (insurancePercentage / 100);
   console.log('\n🛡️  CALCULATING INSURANCE:');
   console.log('  ', totalProductCostEGP, '×', insurancePercentage, '% =', insurance);
 
-  // Calculate VAT (applied on product cost + duty)
-  const vatBase = totalProductCostEGP + totalCustomsDuty;
-  const vat = vatBase * (vatPercentage / 100);
-  console.log('\n💵 CALCULATING VAT:');
-  console.log('  VAT Base:', vatBase, '(product + duty)');
-  console.log('  ', vatBase, '×', vatPercentage, '% =', vat);
-
-  // Shipping cost in EGP
+  // Shipping cost in EGP (needed before VAT)
   const shippingCostEGP = finalShippingCost * exchangeRate;
   console.log('\n🚢 SHIPPING COST IN EGP:');
   console.log('  ', finalShippingCost, '(USD) ×', exchangeRate, '=', shippingCostEGP, '(EGP)');
+
+  // Calculate VAT — base includes product + duty + insurance + shipping (matches backend)
+  const vatBase = totalProductCostEGP + totalCustomsDuty + insurance + shippingCostEGP;
+  const vat = vatBase * (vatPercentage / 100);
+  console.log('\n💵 CALCULATING VAT:');
+  console.log('  VAT Base:', vatBase, '(product + duty + insurance + shipping)');
+  console.log('  ', vatBase, '×', vatPercentage, '% =', vat);
 
   // Total cost to you
   const totalCost = totalProductCostEGP + totalCustomsDuty + insurance + vat + shippingCostEGP;

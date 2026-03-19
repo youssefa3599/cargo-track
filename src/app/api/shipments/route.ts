@@ -6,11 +6,17 @@ import Shipment from '@/models/Shipment';
 import Product from '@/models/Product';
 import mongoose from 'mongoose';
 import User from '@/models/User';
+import Customer from '@/models/Customer';
+import Supplier from '@/models/Supplier';
+import Invoice from '@/models/Invoice';
 import { calculateShipmentCosts } from '@/lib/calculations';
 import type { ICostBreakdown } from '@/models/Shipment';
 
-// Ensure User model is registered for populate()
+// Ensure models are registered for populate()
 void User;
+void Customer;
+void Supplier;
+void Invoice;
 
 // ── GET /api/shipments ────────────────────────────────────────────────────────
 export async function GET(request: NextRequest) {
@@ -43,6 +49,8 @@ export async function GET(request: NextRequest) {
       Shipment.find(query)
         .populate('products.productId', 'name hsCode unitPrice')
         .populate('createdBy', 'email role')
+        .populate('customerId', 'name email')  // ✅ ADD: Populate customer details
+        .populate('supplierId', 'name email') // ✅ ADD: Populate supplier details
         .sort({ createdAt: -1 })
         .skip((page - 1) * limit)
         .limit(limit)
@@ -50,10 +58,28 @@ export async function GET(request: NextRequest) {
       Shipment.countDocuments(query),
     ]);
 
+    // ✅ ADD: Ensure customerName is populated from referenced customer if available
+    const enrichedShipments = await Promise.all(shipments.map(async (shipment: any) => {
+      // If customerId is populated and has a name, use it
+      if (shipment.customerId && typeof shipment.customerId === 'object' && shipment.customerId.name) {
+        shipment.customerName = shipment.customerName || shipment.customerId.name;
+      }
+      // If supplierId is populated and has a name, use it  
+      if (shipment.supplierId && typeof shipment.supplierId === 'object' && shipment.supplierId.name) {
+        shipment.supplierName = shipment.supplierName || shipment.supplierId.name;
+      }
+      
+      // ✅ NEW: Check if this shipment has an invoice
+      const hasInvoice = await Invoice.exists({ shipmentId: shipment._id });
+      shipment.hasInvoice = !!hasInvoice;
+      
+      return shipment;
+    }));
+
     return NextResponse.json({
       success: true,
-      data: shipments,
-      shipments,
+      data: enrichedShipments,
+      shipments: enrichedShipments,
       pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
     });
 

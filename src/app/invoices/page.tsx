@@ -31,6 +31,7 @@ interface Shipment {
   _id: string;
   trackingNumber: string;
   status: string;
+  customerName?: string;
   customer?: {
     name?: string;
   };
@@ -64,6 +65,15 @@ export default function InvoicesPage() {
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'shipments' | 'invoices'>('shipments');
   const [refreshing, setRefreshing] = useState(false);
+  
+  // Separate pagination state for each tab
+  const [shipmentsPage, setShipmentsPage] = useState(1);
+  const [shipmentsTotalPages, setShipmentsTotalPages] = useState(1);
+  const [invoicesPage, setInvoicesPage] = useState(1);
+  const [invoicesTotalPages, setInvoicesTotalPages] = useState(1);
+  const [totalInvoices, setTotalInvoices] = useState(0);
+  const [totalShipments, setTotalShipments] = useState(0);
+  const [shipmentsWithoutInvoice, setShipmentsWithoutInvoice] = useState(0);
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -75,38 +85,78 @@ export default function InvoicesPage() {
     if (isAuthenticated && token) {
       fetchData();
     }
-  }, [isAuthenticated, token]);
+  }, [isAuthenticated, token, shipmentsPage, invoicesPage]);
 
   const fetchData = async () => {
+    console.log('🚀 ========== FETCH DATA STARTED ==========');
+    console.log('📍 Shipments Page:', shipmentsPage);
+    console.log('📍 Invoices Page:', invoicesPage);
+    console.log('📍 Active Tab:', activeTab);
+    
     try {
       setLoading(true);
       setError('');
 
+      console.log('🔄 Making API calls...');
       const [shipmentsRes, invoicesRes] = await Promise.all([
-        fetch('/api/shipments', { headers: { Authorization: `Bearer ${token}` } }),
-        fetch('/api/invoices', { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`/api/shipments?page=${shipmentsPage}&limit=10`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`/api/invoices?page=${invoicesPage}&limit=10`, { headers: { Authorization: `Bearer ${token}` } }),
       ]);
+
+      console.log('✅ API calls completed');
+      console.log('📦 Shipments Response Status:', shipmentsRes.status, shipmentsRes.statusText);
+      console.log('📄 Invoices Response Status:', invoicesRes.status, invoicesRes.statusText);
 
       let shipmentsData: Shipment[] = [];
       if (shipmentsRes.ok) {
         const data = await shipmentsRes.json();
+        console.log('📦 SHIPMENTS RAW DATA:', JSON.stringify(data, null, 2));
+        
         shipmentsData = Array.isArray(data)
           ? data
           : Array.isArray(data.shipments)
           ? data.shipments
+          : Array.isArray(data.data)
+          ? data.data
           : [];
+        
+        console.log('📦 Shipments Array Length:', shipmentsData.length);
+        console.log('📦 First Shipment hasInvoice:', shipmentsData[0]?.hasInvoice);
+        
+        // Extract pagination for shipments
+        if (data.pagination) {
+          console.log('📦 SHIPMENTS PAGINATION:', data.pagination);
+          setTotalShipments(data.pagination.total || 0);
+          setShipmentsTotalPages(data.pagination.totalPages || 1);
+        } else {
+          console.warn('⚠️ NO PAGINATION in shipments response');
+        }
+        
+        // Count shipments without invoices from current page
+        const withoutInvoiceCount = shipmentsData.filter((s: any) => !s.hasInvoice).length;
+        console.log('📦 Shipments WITHOUT invoice:', withoutInvoiceCount);
+        console.log('📦 Shipments WITH invoice:', shipmentsData.length - withoutInvoiceCount);
+        setShipmentsWithoutInvoice(withoutInvoiceCount);
       } else {
+        console.error('❌ Shipments request failed');
         throw new Error('Failed to load shipments');
       }
 
       let invoicesData: Invoice[] = [];
       if (invoicesRes.ok) {
         const data = await invoicesRes.json();
+        console.log('📄 ========== INVOICES RAW DATA ==========');
+        console.log('📄 Full Response:', JSON.stringify(data, null, 2));
+        console.log('📄 Response Keys:', Object.keys(data));
+        console.log('📄 Has pagination?', !!data.pagination);
+        
         const rawInvoices = Array.isArray(data)
           ? data
           : Array.isArray(data.invoices)
           ? data.invoices
           : [];
+
+        console.log('📄 Raw Invoices Array Length:', rawInvoices.length);
 
         invoicesData = rawInvoices.map((inv: any) => ({
           ...inv,
@@ -114,16 +164,46 @@ export default function InvoicesPage() {
           customer: { name: inv.customerName || inv.customer?.name || '' },
           shipment: { trackingNumber: inv.shipmentTrackingNumber || inv.shipment?.trackingNumber || inv.shipmentId || '' },
         })).filter((inv: any) => inv.id);
+        
+        console.log('📄 Processed Invoices Array Length:', invoicesData.length);
+        
+        // Extract pagination for invoices
+        if (data.pagination) {
+          console.log('📄 ========== INVOICES PAGINATION ==========');
+          console.log('📄 Page:', data.pagination.page);
+          console.log('📄 Limit:', data.pagination.limit);
+          console.log('📄 Total:', data.pagination.total);
+          console.log('📄 Total Pages:', data.pagination.totalPages);
+          console.log('📄 ==========================================');
+          
+          setInvoicesTotalPages(data.pagination.totalPages || 1);
+          setTotalInvoices(data.pagination.total || 0);
+        } else {
+          console.warn('⚠️ ========== NO PAGINATION DATA IN INVOICE RESPONSE ==========');
+          console.warn('⚠️ Setting defaults: totalPages=1, totalInvoices=' + invoicesData.length);
+          setInvoicesTotalPages(1);
+          setTotalInvoices(invoicesData.length);
+        }
       }
 
+      console.log('💾 Setting state...');
+      console.log('💾 Shipments to set:', shipmentsData.length);
+      console.log('💾 Invoices to set:', invoicesData.length);
+      
       setShipments(shipmentsData);
       setInvoices(invoicesData);
+      
+      console.log('✅ ========== FETCH DATA COMPLETED ==========');
     } catch (err: any) {
+      console.error('💥 ========== FETCH DATA ERROR ==========');
       console.error('Error fetching invoices/shipments:', err);
+      console.error('Error message:', err.message);
+      console.error('Error stack:', err.stack);
       setError(err.message || 'Failed to load data. Please try again.');
     } finally {
       setLoading(false);
       setRefreshing(false);
+      console.log('🏁 ========== FETCH DATA FINALLY BLOCK ==========');
     }
   };
 
@@ -217,9 +297,26 @@ export default function InvoicesPage() {
 
   const pendingShipments = shipments.filter((s) => !s.hasInvoice);
   const tabCount = {
-    shipments: pendingShipments.length,
-    invoices: invoices.length,
+    shipments: shipmentsWithoutInvoice || pendingShipments.length,
+    invoices: totalInvoices || invoices.length,
   };
+
+  console.log('🎨 ========== RENDER STATE ==========');
+  console.log('🎨 Shipments Page:', shipmentsPage);
+  console.log('🎨 Shipments Total Pages:', shipmentsTotalPages);
+  console.log('🎨 Invoices Page:', invoicesPage);
+  console.log('🎨 Invoices Total Pages:', invoicesTotalPages);
+  console.log('🎨 Total Invoices:', totalInvoices);
+  console.log('🎨 Invoices Array Length:', invoices.length);
+  console.log('🎨 Total Shipments:', totalShipments);
+  console.log('🎨 Shipments Array Length:', shipments.length);
+  console.log('🎨 Pending Shipments Length:', pendingShipments.length);
+  console.log('🎨 Pending Shipments:', pendingShipments);
+  console.log('🎨 Shipments Without Invoice:', shipmentsWithoutInvoice);
+  console.log('🎨 Tab Counts:', tabCount);
+  console.log('🎨 Loading:', loading);
+  console.log('🎨 Active Tab:', activeTab);
+  console.log('🎨 =====================================');
 
   return (
     <AnimatedPage>
@@ -271,7 +368,7 @@ export default function InvoicesPage() {
         <PageHeader
           icon={<FileText className="w-8 h-8" />}
           title="Invoice Management"
-          description={`Manage and generate invoices (${invoices.length} total)`}
+          description={`Manage and generate invoices (${totalInvoices} total)`}
           actions={
             <div className="flex gap-2">
               <AnimatedButton
@@ -341,37 +438,79 @@ export default function InvoicesPage() {
                 description="All eligible shipments already have invoices."
               />
             ) : (
-              <AnimatedCard>
-                <div className="space-y-4">
-                  {pendingShipments.map((shipment) => (
-                    <div
-                      key={shipment._id || shipment.trackingNumber}
-                      className="flex flex-col md:flex-row justify-between items-start md:items-center p-4 border-b border-gray-200 last:border-0"
-                    >
-                      <div className="mb-3 md:mb-0">
-                        <p className="font-medium text-gray-900">
-                          {shipment.trackingNumber || 'Unknown Tracking'}
-                        </p>
-                        <p className="text-sm text-gray-600">
-                          Customer: {shipment.customer?.name || 'N/A'}
-                        </p>
-                        <span className="inline-block mt-1 px-2 py-1 text-xs rounded bg-yellow-100 text-yellow-800">
-                          {shipment.status || 'Unknown'}
-                        </span>
-                      </div>
-                      <AnimatedButton
-                        size="sm"
-                        variant="primary"
-                        onClick={() => generateInvoice(shipment._id)}
-                        disabled={generating === shipment._id}
-                        loading={generating === shipment._id}
+              <>
+                <AnimatedCard>
+                  <div className="space-y-4">
+                    {pendingShipments.map((shipment) => (
+                      <div
+                        key={shipment._id || shipment.trackingNumber}
+                        className="flex flex-col md:flex-row justify-between items-start md:items-center p-4 border-b border-gray-200 last:border-0"
                       >
-                        Generate Invoice
-                      </AnimatedButton>
-                    </div>
-                  ))}
+                        <div className="mb-3 md:mb-0">
+                          <p className="font-medium text-gray-900">
+                            {shipment.trackingNumber || 'Unknown Tracking'}
+                          </p>
+                          <p className="text-sm text-gray-600">
+                            Customer: {shipment.customerName || shipment.customer?.name || 'N/A'}
+                          </p>
+                          <span className="inline-block mt-1 px-2 py-1 text-xs rounded bg-yellow-100 text-yellow-800">
+                            {shipment.status || 'Unknown'}
+                          </span>
+                        </div>
+                        <AnimatedButton
+                          size="sm"
+                          variant="primary"
+                          onClick={() => generateInvoice(shipment._id)}
+                          disabled={generating === shipment._id}
+                          loading={generating === shipment._id}
+                        >
+                          Generate Invoice
+                        </AnimatedButton>
+                      </div>
+                    ))}
+                  </div>
+                </AnimatedCard>
+                
+                {/* Shipments Pagination Controls */}
+                <div className="mt-4 text-center text-sm text-gray-500">
+                  Showing {pendingShipments.length} of {totalShipments} total shipments (Page {shipmentsPage} of {shipmentsTotalPages})
                 </div>
-              </AnimatedCard>
+                
+                {shipmentsTotalPages > 1 && (
+                  <div className="mt-6 flex justify-center items-center gap-2">
+                    <AnimatedButton
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => setShipmentsPage(prev => Math.max(1, prev - 1))}
+                      disabled={shipmentsPage === 1}
+                    >
+                      Previous
+                    </AnimatedButton>
+                    
+                    <div className="flex gap-2">
+                      {Array.from({ length: shipmentsTotalPages }, (_, i) => i + 1).map(pageNum => (
+                        <AnimatedButton
+                          key={pageNum}
+                          variant={shipmentsPage === pageNum ? 'primary' : 'ghost'}
+                          size="sm"
+                          onClick={() => setShipmentsPage(pageNum)}
+                        >
+                          {pageNum}
+                        </AnimatedButton>
+                      ))}
+                    </div>
+                    
+                    <AnimatedButton
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => setShipmentsPage(prev => Math.min(shipmentsTotalPages, prev + 1))}
+                      disabled={shipmentsPage === shipmentsTotalPages}
+                    >
+                      Next
+                    </AnimatedButton>
+                  </div>
+                )}
+              </>
             )
           ) : invoices.length === 0 ? (
             <EmptyState
@@ -380,85 +519,127 @@ export default function InvoicesPage() {
               description="Generate your first invoice from a shipment."
             />
           ) : (
-            <AnimatedCard>
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead>
-                    <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Invoice #</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Customer</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Shipment</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-200">
-                    {invoices.map((invoice) => (
-                      <tr key={invoice.id} className="hover:bg-gray-50">
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <span className="font-mono text-blue-600">{invoice.invoiceNumber || 'N/A'}</span>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {invoice.customer?.name || 'N/A'}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                          {invoice.shipment?.trackingNumber || 'N/A'}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                          ${typeof invoice.totalAmount === 'number' ? invoice.totalAmount.toFixed(2) : '0.00'}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <span
-                            className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                              invoice.status === 'paid'
-                                ? 'bg-green-100 text-green-800'
-                                : invoice.status === 'sent'
-                                ? 'bg-blue-100 text-blue-800'
-                                : 'bg-yellow-100 text-yellow-800'
-                            }`}
-                          >
-                            {invoice.status || 'draft'}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-2">
-                          <Link href={`/invoices/${invoice.id}`}>
-                            <AnimatedButton variant="ghost" size="sm" icon={<Eye className="w-4 h-4" />}>
-                              View
-                            </AnimatedButton>
-                          </Link>
-                          <AnimatedButton
-                            variant="ghost"
-                            size="sm"
-                            icon={<Download className="w-4 h-4" />}
-                            onClick={() => downloadInvoice(invoice.id)}
-                          >
-                            PDF
-                          </AnimatedButton>
-                          <AnimatedButton
-                            variant="ghost"
-                            size="sm"
-                            icon={<Send className="w-4 h-4" />}
-                            onClick={() => sendInvoice(invoice.id)}
-                          >
-                            Send
-                          </AnimatedButton>
-                          <AnimatedButton
-                            variant="ghost"
-                            size="sm"
-                            icon={<Trash2 className="w-4 h-4 text-red-500" />}
-                            onClick={() => setConfirmDelete(invoice.id)}
-                            disabled={deleting === invoice.id}
-                          >
-                            <span className="text-red-500">Delete</span>
-                          </AnimatedButton>
-                        </td>
+            <>
+              <AnimatedCard>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead>
+                      <tr>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Invoice #</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Customer</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Shipment</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                        <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200">
+                      {invoices.map((invoice) => (
+                        <tr key={invoice.id} className="hover:bg-gray-50">
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span className="font-mono text-blue-600">{invoice.invoiceNumber || 'N/A'}</span>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                            {invoice.customer?.name || 'N/A'}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                            {invoice.shipment?.trackingNumber || 'N/A'}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                            ${typeof invoice.totalAmount === 'number' ? invoice.totalAmount.toFixed(2) : '0.00'}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span
+                              className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                                invoice.status === 'paid'
+                                  ? 'bg-green-100 text-green-800'
+                                  : invoice.status === 'sent'
+                                  ? 'bg-blue-100 text-blue-800'
+                                  : 'bg-yellow-100 text-yellow-800'
+                              }`}
+                            >
+                              {invoice.status || 'draft'}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-2">
+                            <Link href={`/invoices/${invoice.id}`}>
+                              <AnimatedButton variant="ghost" size="sm" icon={<Eye className="w-4 h-4" />}>
+                                View
+                              </AnimatedButton>
+                            </Link>
+                            <AnimatedButton
+                              variant="ghost"
+                              size="sm"
+                              icon={<Download className="w-4 h-4" />}
+                              onClick={() => downloadInvoice(invoice.id)}
+                            >
+                              PDF
+                            </AnimatedButton>
+                            <AnimatedButton
+                              variant="ghost"
+                              size="sm"
+                              icon={<Send className="w-4 h-4" />}
+                              onClick={() => sendInvoice(invoice.id)}
+                            >
+                              Send
+                            </AnimatedButton>
+                            <AnimatedButton
+                              variant="ghost"
+                              size="sm"
+                              icon={<Trash2 className="w-4 h-4 text-red-500" />}
+                              onClick={() => setConfirmDelete(invoice.id)}
+                              disabled={deleting === invoice.id}
+                            >
+                              <span className="text-red-500">Delete</span>
+                            </AnimatedButton>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </AnimatedCard>
+              
+              {/* Pagination Controls */}
+              <div className="mt-4 text-center text-sm text-gray-500">
+                Showing {invoices.length} of {totalInvoices} invoices (Page {invoicesPage} of {invoicesTotalPages})
               </div>
-            </AnimatedCard>
+              
+              {invoicesTotalPages > 1 && (
+                <div className="mt-6 flex justify-center items-center gap-2">
+                  <AnimatedButton
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => setInvoicesPage(prev => Math.max(1, prev - 1))}
+                    disabled={invoicesPage === 1}
+                  >
+                    Previous
+                  </AnimatedButton>
+                  
+                  <div className="flex gap-2">
+                    {Array.from({ length: invoicesTotalPages }, (_, i) => i + 1).map(pageNum => (
+                      <AnimatedButton
+                        key={pageNum}
+                        variant={invoicesPage === pageNum ? 'primary' : 'ghost'}
+                        size="sm"
+                        onClick={() => setInvoicesPage(pageNum)}
+                      >
+                        {pageNum}
+                      </AnimatedButton>
+                    ))}
+                  </div>
+                  
+                  <AnimatedButton
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => setInvoicesPage(prev => Math.min(invoicesTotalPages, prev + 1))}
+                    disabled={invoicesPage === invoicesTotalPages}
+                  >
+                    Next
+                  </AnimatedButton>
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>

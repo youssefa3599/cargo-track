@@ -89,7 +89,8 @@ export async function GET(
   }
 }
 
-// PUT and DELETE remain the same...
+// PUT /api/suppliers/[id] - Update supplier
+// PUT /api/suppliers/[id] - Update supplier
 export async function PUT(
   request: NextRequest,
   { params }: { params: { id: string } }
@@ -138,13 +139,42 @@ export async function PUT(
       }
     }
 
-    const updatedSupplier = await Supplier.findByIdAndUpdate(
-      id,
-      { $set: body },
+    // ✅ FIX: Build update object conditionally to avoid validation errors
+    const updateData: any = {};
+
+    if (body.name !== undefined) updateData.name = body.name;
+    if (body.email !== undefined) updateData.email = body.email;
+    if (body.phone !== undefined) updateData.phone = body.phone;
+    if (body.website !== undefined) updateData.website = body.website;
+    if (body.status !== undefined) updateData.status = body.status;
+    if (body.notes !== undefined) updateData.notes = body.notes;
+
+    // ✅ NEW: Handle contactPerson updates
+    if (body.contactPerson !== undefined) {
+      updateData.contactPerson = body.contactPerson;
+    }
+
+    // Only update address if ALL required fields are provided
+    if (body.address && 
+        body.address.street && 
+        body.address.city && 
+        body.address.state && 
+        body.address.zipCode && 
+        body.address.country) {
+      updateData.address = body.address;
+    }
+
+    const updatedSupplier = await Supplier.findOneAndUpdate(
+      { _id: id, companyId: decoded.companyId },
+      { $set: updateData },
       { new: true, runValidators: true }
     );
 
-    // ✅ NEW: If supplier name changed, update all products
+    if (!updatedSupplier) {
+      return NextResponse.json({ error: 'Supplier not found' }, { status: 404 });
+    }
+
+    // ✅ If supplier name changed, update all products
     if (body.name && body.name !== existingSupplier.name) {
       await Product.updateMany(
         { supplierId: id },

@@ -37,6 +37,8 @@ export async function GET(request: NextRequest) {
 
     // Get query parameters
     const { searchParams } = new URL(request.url);
+    const page = parseInt(searchParams.get('page') || '1');
+    const limit = parseInt(searchParams.get('limit') || '10');
     const status = searchParams.get('status');
     const shipmentId = searchParams.get('shipmentId');
     const search = searchParams.get('search');
@@ -77,9 +79,14 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const invoices = await Invoice.find(query)
-      .sort({ createdAt: -1 })
-      .lean();
+    const [invoices, total] = await Promise.all([
+      Invoice.find(query)
+        .sort({ createdAt: -1 })
+        .skip((page - 1) * limit)
+        .limit(limit)
+        .lean(),
+      Invoice.countDocuments(query)
+    ]);
 
 
     // Transform data for frontend with all required fields
@@ -133,7 +140,13 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       success: true,
       invoices: transformedInvoices,
-      count: transformedInvoices.length
+      count: transformedInvoices.length,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit)
+      }
     });
 
   } catch (error: any) {

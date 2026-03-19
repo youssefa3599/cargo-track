@@ -117,7 +117,7 @@ export default function AnalyticsEnhancedPage() {
   const [availableYears, setAvailableYears] = useState<number[]>([]);
   
   // Date basis for analytics: 'created', 'shipped', or 'delivered'
-  const [dateBasis, setDateBasis] = useState<'created' | 'shipped' | 'delivered'>('delivered');
+  const [dateBasis, setDateBasis] = useState<'created' | 'shipped' | 'delivered'>('shipped');
 
   // Metrics state
   const [yearlyMetrics, setYearlyMetrics] = useState<YearlyMetrics | null>(null);
@@ -155,26 +155,26 @@ export default function AnalyticsEnhancedPage() {
   const getShipmentDate = (shipment: any): Date => {
     switch (dateBasis) {
       case 'delivered':
-        // Use actual delivery date for delivered shipments
-        // Support both field name variations: actualDelivery, actualArrival, deliveryDate
+        // For delivered shipments: prefer actual delivery date, fall back to estimated
         if (shipment.status === 'delivered') {
           const actualDate = shipment.actualDelivery || shipment.actualArrival || shipment.deliveryDate;
-          if (actualDate) {
-            return new Date(actualDate);
-          }
+          if (actualDate) return new Date(actualDate);
+          // No actual date stamped — use estimated arrival as best approximation
+          const estimatedDate = shipment.estimatedDelivery || shipment.estimatedArrival;
+          if (estimatedDate) return new Date(estimatedDate);
         }
-        // For non-delivered, use estimated delivery/arrival or creation date
+        // For non-delivered shipments: use estimated arrival to place them in expected year
         return new Date(
-          shipment.estimatedDelivery || 
-          shipment.estimatedArrival || 
-          shipment.createdAt || 
-          shipment.shippingDate || 
+          shipment.estimatedDelivery ||
+          shipment.estimatedArrival ||
+          shipment.shippingDate ||
+          shipment.createdAt ||
           Date.now()
         );
-      
+
       case 'shipped':
         return new Date(shipment.shippingDate || shipment.createdAt || Date.now());
-      
+
       case 'created':
       default:
         return new Date(shipment.createdAt || shipment.shippingDate || Date.now());
@@ -301,13 +301,19 @@ export default function AnalyticsEnhancedPage() {
 
     const totalShipments = yearShipments.length;
     const delivered = yearShipments.filter(s => s.status === 'delivered').length;
-    
-    const revenue = yearShipments.reduce((sum, s) => 
+
+    // In delivery date mode, revenue/profit only counts actually delivered shipments
+    // In shipped/created mode, count all shipments in the year
+    const revenueShipments = dateBasis === 'delivered'
+      ? yearShipments.filter(s => s.status === 'delivered')
+      : yearShipments;
+
+    const revenue = revenueShipments.reduce((sum, s) =>
       sum + (s.customerPayment || s.totalCost || s.costBreakdown?.totalLandedCost || 0), 0);
-    
-    const profit = yearShipments.reduce((sum, s) => sum + (s.profit || 0), 0);
-    
-    const costs = yearShipments.reduce((sum, s) => 
+
+    const profit = revenueShipments.reduce((sum, s) => sum + (s.profit || 0), 0);
+
+    const costs = revenueShipments.reduce((sum, s) =>
       sum + (s.totalCost || s.costBreakdown?.totalLandedCost || 0), 0);
 
     const avgShipmentValue = totalShipments > 0 ? revenue / totalShipments : 0;
@@ -362,9 +368,12 @@ export default function AnalyticsEnhancedPage() {
       const data = monthlyMap.get(month)!;
       
       data.shipments++;
-      data.revenue += s.customerPayment || s.totalCost || s.costBreakdown?.totalLandedCost || 0;
-      data.profit += s.profit || 0;
-      data.costs += s.totalCost || s.costBreakdown?.totalLandedCost || 0;
+      // Only count revenue/profit from delivered shipments in delivery date mode
+      if (dateBasis !== 'delivered' || s.status === 'delivered') {
+        data.revenue += s.customerPayment || s.totalCost || s.costBreakdown?.totalLandedCost || 0;
+        data.profit += s.profit || 0;
+        data.costs += s.totalCost || s.costBreakdown?.totalLandedCost || 0;
+      }
     });
 
     return Array.from(monthlyMap.values());
@@ -405,9 +414,9 @@ export default function AnalyticsEnhancedPage() {
 
   const formatCurrency = (amount: number | undefined | null) => {
     if (amount === undefined || amount === null || isNaN(amount)) {
-      return '$0.00';
+      return 'E£0.00';
     }
-    return `$${amount.toLocaleString('en-US', {
+    return `E£${amount.toLocaleString('en-US', {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     })}`;
@@ -523,9 +532,9 @@ export default function AnalyticsEnhancedPage() {
         <PageHeader
           icon={<BarChart3 className="w-8 h-8 text-cyan-400" />}
           title="Analytics Dashboard"
-          description={comparisonMode 
+          description={comparisonMode
             ? `Year-over-Year Comparison: ${selectedYear1} vs ${selectedYear2}`
-            : `Comprehensive insights for ${selectedYear}`
+            : `Shipments by shipping date for ${selectedYear}`
           }
           actions={
             <div className="flex gap-3">
@@ -636,7 +645,7 @@ export default function AnalyticsEnhancedPage() {
                   {/* Helper Text */}
                   <div className="text-xs text-gray-500 bg-gray-50 px-3 py-2 rounded border border-gray-200 whitespace-nowrap">
                     {dateBasis === 'delivered' && '💰 Revenue recognized when delivered'}
-                    {dateBasis === 'shipped' && '📦 Based on shipping date'}
+                    {dateBasis === 'shipped' && '🚢 Revenue recognized on shipping date'}
                     {dateBasis === 'created' && '📝 Based on creation date'}
                   </div>
                 </div>
@@ -675,7 +684,7 @@ export default function AnalyticsEnhancedPage() {
                       <div className="text-4xl font-bold text-green-600">
                         {formatCurrency(yearlyMetrics.revenue)}
                       </div>
-                      <div className="text-sm font-medium text-gray-600 mt-2">Total Revenue</div>
+                      <div className="text-sm font-medium text-gray-600 mt-2">Total Revenue (EGP)</div>
                       <div className="text-xs text-gray-500 mt-1">
                         Avg: {formatCurrency(yearlyMetrics.avgShipmentValue)}
                       </div>
@@ -700,7 +709,7 @@ export default function AnalyticsEnhancedPage() {
                       }`}>
                         {formatCurrency(yearlyMetrics.profit)}
                       </div>
-                      <div className="text-sm font-medium text-gray-600 mt-2">Net Profit</div>
+                      <div className="text-sm font-medium text-gray-600 mt-2">Net Profit (EGP)</div>
                       <div className="text-xs text-gray-500 mt-1">
                         Avg: {formatCurrency(yearlyMetrics.avgProfit)}
                       </div>

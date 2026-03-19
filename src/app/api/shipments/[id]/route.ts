@@ -8,6 +8,7 @@ import Product from '@/models/Product';
 import mongoose from 'mongoose';
 import { calculateShipmentCosts } from '@/lib/calculations';
 import type { ICostBreakdown } from '@/models/Shipment';
+import { isValidStatusTransition, isFinalStatus } from '@/lib/validations';
 
 /**
  * GET /api/shipments/:id
@@ -346,6 +347,11 @@ export async function PUT(
       existingShipment.customsDuty = body.customsDuty;
     }
     
+    // Also accept totalCustomsDuty (sent by edit page for [id] display compatibility)
+    if (body.totalCustomsDuty !== undefined) {
+      existingShipment.customsDuty = body.totalCustomsDuty;
+    }
+    
     if (body.insurance !== undefined) {
       existingShipment.insurance = body.insurance;
     }
@@ -361,6 +367,18 @@ export async function PUT(
 
     // Handle status change
     if (body.status && body.status !== existingShipment.status) {
+      // 🔒 Enforce transition rules — mirrors STATUS_TRANSITIONS in validations.ts
+      if (!isValidStatusTransition(existingShipment.status, body.status)) {
+        return NextResponse.json(
+          {
+            error: `Invalid status transition: cannot move from "${existingShipment.status}" to "${body.status}".`,
+            currentStatus: existingShipment.status,
+            requestedStatus: body.status,
+          },
+          { status: 422 }
+        );
+      }
+
       existingShipment.status = body.status;
       existingShipment.statusHistory.push({
         status: body.status,

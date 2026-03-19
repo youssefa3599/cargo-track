@@ -43,6 +43,9 @@ export default function ShipmentsPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
   const [refreshing, setRefreshing] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalShipments, setTotalShipments] = useState(0);
   const router = useRouter();
 
   useEffect(() => {
@@ -56,11 +59,16 @@ export default function ShipmentsPage() {
     } else {
       fetchShipments();
     }
-  }, [isAuthenticated, router]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated, currentPage, searchTerm, filterStatus]); // Added searchTerm and filterStatus
 
+  // Reset to page 1 when filters change
   useEffect(() => {
-    filterShipments();
-  }, [searchTerm, filterStatus, shipments]);
+    if (currentPage !== 1) {
+      setCurrentPage(1);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchTerm, filterStatus]);
 
   const fetchShipments = async () => {
     try {
@@ -79,7 +87,16 @@ export default function ShipmentsPage() {
         return;
       }
 
-      const response = await fetch('/api/shipments', { headers });
+      // Build query parameters
+      let url = `/api/shipments?page=${currentPage}&limit=10`;
+      if (filterStatus !== 'all') {
+        url += `&status=${filterStatus}`;
+      }
+      if (searchTerm) {
+        url += `&search=${encodeURIComponent(searchTerm)}`;
+      }
+
+      const response = await fetch(url, { headers });
 
       if (!response.ok) {
         const errorText = await response.text();
@@ -108,33 +125,20 @@ export default function ShipmentsPage() {
         return;
       }
 
+      // Extract pagination info
+      if (data.pagination) {
+        setTotalPages(data.pagination.totalPages || 1);
+        setTotalShipments(data.pagination.total || 0);
+      }
+
       setShipments(shipmentsList);
+      setFilteredShipments(shipmentsList); // Set filtered to the same since filtering is server-side
     } catch (error: any) {
       setError(error?.message || 'Failed to fetch shipments');
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  };
-
-  const filterShipments = () => {
-    let filtered = [...shipments];
-
-    if (filterStatus !== 'all') {
-      filtered = filtered.filter(s => s.status === filterStatus);
-    }
-
-    if (searchTerm) {
-      const term = searchTerm.toLowerCase();
-      filtered = filtered.filter(s =>
-        (s.trackingNumber?.toLowerCase() || '').includes(term) ||
-        s.origin.toLowerCase().includes(term) ||
-        s.destination.toLowerCase().includes(term) ||
-        (s.customerName?.toLowerCase() || '').includes(term)
-      );
-    }
-
-    setFilteredShipments(filtered);
   };
 
   const handleRefresh = () => {
@@ -229,7 +233,7 @@ export default function ShipmentsPage() {
       key: 'customerName',
       label: 'Customer',
       render: (value: string) => (
-        <div className="text-sm text-gray-900">{value || '-'}</div>
+        <div className="text-sm text-gray-900">{value || 'N/A'}</div>
       )
     },
     {
@@ -337,7 +341,7 @@ export default function ShipmentsPage() {
         <PageHeader
           icon={<Package className="w-8 h-8" />}
           title="Shipment Management"
-          description={`Track and manage all your cargo shipments (${shipments.length} total)`}
+          description={`Track and manage all your cargo shipments (${totalShipments} total)`}
           actions={
             <AnimatedButton
               variant="primary"
@@ -483,9 +487,47 @@ export default function ShipmentsPage() {
           )}
 
           {!loading && filteredShipments.length > 0 && (
-            <div className="mt-4 text-center text-sm text-gray-500">
-              Showing {filteredShipments.length} of {shipments.length} shipments
-            </div>
+            <>
+              <div className="mt-4 text-center text-sm text-gray-500">
+                Showing {filteredShipments.length} of {totalShipments} shipments (Page {currentPage} of {totalPages})
+              </div>
+              
+              {/* Pagination Controls */}
+              {totalPages > 1 && (
+                <div className="mt-6 flex justify-center items-center gap-2">
+                  <AnimatedButton
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                    disabled={currentPage === 1}
+                  >
+                    Previous
+                  </AnimatedButton>
+                  
+                  <div className="flex gap-2">
+                    {Array.from({ length: totalPages }, (_, i) => i + 1).map(pageNum => (
+                      <AnimatedButton
+                        key={pageNum}
+                        variant={currentPage === pageNum ? 'primary' : 'ghost'}
+                        size="sm"
+                        onClick={() => setCurrentPage(pageNum)}
+                      >
+                        {pageNum}
+                      </AnimatedButton>
+                    ))}
+                  </div>
+                  
+                  <AnimatedButton
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                    disabled={currentPage === totalPages}
+                  >
+                    Next
+                  </AnimatedButton>
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>

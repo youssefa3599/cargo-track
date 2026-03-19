@@ -28,13 +28,17 @@ export async function GET(request: NextRequest) {
     const country  = searchParams.get('country');
 
     const query: any = { companyId: decoded.companyId };
-    if (search) {
+    
+    // ✅ FIX: Only apply search filter if search term is at least 1 character
+    // This prevents returning all results when search is empty or too short
+    if (search && search.trim().length >= 1) {
       query.$or = [
-        { name:          { $regex: search, $options: 'i' } },
-        { email:         { $regex: search, $options: 'i' } },
-        { contactPerson: { $regex: search, $options: 'i' } },
+        { name:          { $regex: search.trim(), $options: 'i' } },
+        { email:         { $regex: search.trim(), $options: 'i' } },
+        { contactPerson: { $regex: search.trim(), $options: 'i' } },
       ];
     }
+    
     if (isActive != null) query.isActive = isActive === 'true';
     if (country) query.country = country;
 

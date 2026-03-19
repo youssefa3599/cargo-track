@@ -1,215 +1,179 @@
 /**
- * Financial Calculations Library - UPDATED WITH WEIGHT-BASED SHIPPING
- * All the cost calculation logic for shipments
+ * 💰 Financial Calculations Library
+ *
+ * Core business logic for cargo shipment cost calculations.
+ * Covers shipping, insurance, customs duty, VAT, and total landed cost.
+ *
+ * All monetary values are in USD unless otherwise stated.
+ * Currency: USD → EGP conversions use a caller-supplied exchange rate.
  */
 
-export interface ProductCalculation {
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+export interface Dimensions {
+  length: number; // cm
+  width: number;  // cm
+  height: number; // cm
+}
+
+export interface Product {
   productId: string;
   productName: string;
-  hsCode: string;
+  hsCode?: string;
   quantity: number;
   unitPrice: number;
-  totalProductCost: number;
   dutyPercentage: number;
+}
+
+export interface ProductCostLine {
+  productId: string;
+  productName: string;
+  hsCode?: string;
+  quantity: number;
+  unitPrice: number;
+  dutyPercentage: number;
+  totalProductCost: number;
   dutyAmount: number;
 }
 
-export interface ShipmentCostBreakdown {
-  // Product costs
+export interface ShipmentCosts {
   productCost: number;
-  
-  // Additional costs
   shippingCost: number;
   insuranceCost: number;
-  insurancePercentage: number;
-  
-  // Duties and taxes
   totalDuty: number;
   vat: number;
-  vatPercentage: number;
-  
-  // Totals
   totalLandedCost: number;
   totalLandedCostEGP: number;
-  
-  // Per unit
   totalQuantity: number;
   costPerUnit: number;
-  costPerUnitEGP: number;
-  
-  // Exchange rate
-  exchangeRate: number;
-  
-  // Product breakdown
-  products: ProductCalculation[];
+  products: ProductCostLine[];
 }
 
+// ---------------------------------------------------------------------------
+// Shipping Cost — Weight-Based
+// ---------------------------------------------------------------------------
+
 /**
- * 🆕 Calculate shipping cost based on weight
- * @param weight Total shipment weight in kg
- * @param ratePerKg Rate per kilogram (default: $2.50/kg)
- * @returns Calculated shipping cost in USD
+ * Tiered weight-based shipping cost (USD).
+ *
+ * Tiers:
+ *   0 – 15 kg   →  $50 minimum
+ *  16 – 50 kg   →  $50 base  + (weight - 10) × $3.00
+ *  51 – 100 kg  →  $170 base + (weight - 50) × $2.50
+ * 101+    kg    →  $295 base + (weight - 100) × $2.00
  */
-export function calculateShippingCostByWeight(
-  weight: number,
-  ratePerKg: number = 2.5
-): number {
-  console.log('  🔧 calculateShippingCostByWeight() called');
-  console.log('     Weight:', weight, 'kg');
-  console.log('     Rate per kg: $', ratePerKg);
-  
-  if (weight <= 0) {
-    console.warn('     ⚠️  Warning: Weight is 0 or negative, returning base rate of $50');
-    return 50; // Minimum shipping cost
-  }
-  
-  // Tiered pricing (more realistic)
-  let shippingCost = 0;
-  
-  if (weight <= 10) {
-    // Small packages: $50 base rate
-    shippingCost = 50;
-    console.log('     📦 Small package (≤10kg): Base rate $50');
-  } else if (weight <= 50) {
-    // Medium packages: $50 + $3/kg over 10kg
-    shippingCost = 50 + (weight - 10) * 3;
-    console.log('     📦 Medium package (10-50kg): $50 + $', ((weight - 10) * 3).toFixed(2));
-  } else if (weight <= 100) {
-    // Large packages: $170 + $2.5/kg over 50kg
-    shippingCost = 170 + (weight - 50) * 2.5;
-    console.log('     📦 Large package (50-100kg): $170 + $', ((weight - 50) * 2.5).toFixed(2));
-  } else {
-    // Extra large: $295 + $2/kg over 100kg
-    shippingCost = 295 + (weight - 100) * 2;
-    console.log('     📦 Extra large (>100kg): $295 + $', ((weight - 100) * 2).toFixed(2));
-  }
-  
-  console.log('     ✅ Shipping Cost:', shippingCost);
-  return shippingCost;
+export function calculateShippingCostByWeight(weightKg: number): number {
+  const w = Math.max(0, weightKg);
+
+  if (w <= 15) return 50;
+  if (w <= 50) return 50 + (w - 10) * 3;
+  if (w <= 100) return 170 + (w - 50) * 2.5;
+  return 295 + (w - 100) * 2;
 }
 
+// ---------------------------------------------------------------------------
+// Shipping Cost — Volumetric
+// ---------------------------------------------------------------------------
+
 /**
- * 🆕 Calculate shipping cost with volumetric weight consideration
- * @param actualWeight Actual weight in kg
- * @param dimensions Box dimensions in cm
- * @param ratePerKg Rate per kilogram
- * @returns Calculated shipping cost using chargeable weight
+ * Volumetric divisor: cm³ → kg.
+ * Industry standard for air/courier: 5 000 cm³ = 1 kg.
+ */
+const VOLUMETRIC_DIVISOR = 5000;
+
+/**
+ * Returns the shipping cost using the greater of actual weight vs volumetric weight.
+ * Falls back to weight-only if dimensions are absent or zero.
  */
 export function calculateShippingCostVolumetric(
-  actualWeight: number,
-  dimensions: { length: number; width: number; height: number } | null,
-  ratePerKg: number = 2.5
+  actualWeightKg: number,
+  dimensions: Dimensions | null | undefined
 ): number {
-  console.log('  🔧 calculateShippingCostVolumetric() called');
-  console.log('     Actual Weight:', actualWeight, 'kg');
-  console.log('     Dimensions:', dimensions || 'not provided');
-  
-  let chargeableWeight = actualWeight;
-  
-  // Calculate volumetric weight if dimensions provided
-  if (dimensions && dimensions.length > 0 && dimensions.width > 0 && dimensions.height > 0) {
-    // Standard volumetric divisor for air freight
-    const volumetricWeight = (dimensions.length * dimensions.width * dimensions.height) / 5000;
-    console.log('     Volumetric Weight:', volumetricWeight.toFixed(2), 'kg');
-    console.log('     (', dimensions.length, '×', dimensions.width, '×', dimensions.height, '/ 5000)');
-    
-    // Use whichever is higher
-    chargeableWeight = Math.max(actualWeight, volumetricWeight);
-    
-    if (chargeableWeight === volumetricWeight) {
-      console.log('     💡 Using volumetric weight (higher)');
-    } else {
-      console.log('     💡 Using actual weight (higher)');
-    }
+  if (
+    !dimensions ||
+    dimensions.length <= 0 ||
+    dimensions.width <= 0 ||
+    dimensions.height <= 0
+  ) {
+    return calculateShippingCostByWeight(actualWeightKg);
   }
-  
-  console.log('     Chargeable Weight:', chargeableWeight.toFixed(2), 'kg');
-  
-  // Use tiered pricing
-  return calculateShippingCostByWeight(chargeableWeight, ratePerKg);
+
+  const volumetricWeight =
+    (dimensions.length * dimensions.width * dimensions.height) /
+    VOLUMETRIC_DIVISOR;
+
+  const chargeableWeight = Math.max(actualWeightKg, volumetricWeight);
+  return calculateShippingCostByWeight(chargeableWeight);
 }
 
+// ---------------------------------------------------------------------------
+// Product Cost
+// ---------------------------------------------------------------------------
+
 /**
- * Calculate total product cost
+ * Total product cost = Σ (quantity × unitPrice) for each product line.
  */
 export function calculateProductCost(
   products: Array<{ quantity: number; unitPrice: number }>
 ): number {
-  console.log('  🔧 calculateProductCost() called');
-  console.log('     Input:', products.length, 'products');
-  
-  const total = products.reduce((total, product, idx) => {
-    const itemCost = product.quantity * product.unitPrice;
-    console.log(`     [${idx}] qty=${product.quantity} × price=${product.unitPrice} = ${itemCost}`);
-    return total + itemCost;
-  }, 0);
-  
-  console.log('     ✅ Product Cost Total:', total);
-  return total;
+  const total = products.reduce((sum, p) => sum + p.quantity * p.unitPrice, 0);
+  return Math.round(total * 100) / 100;
 }
 
+// ---------------------------------------------------------------------------
+// Insurance
+// ---------------------------------------------------------------------------
+
 /**
- * Calculate insurance cost (percentage of product cost)
- * 📌 INDUSTRY STANDARD: 1-3% of product value (typically 2%)
+ * Insurance cost = productCost × (insurancePercentage / 100).
  */
 export function calculateInsurance(
   productCost: number,
   insurancePercentage: number
 ): number {
-  console.log('  🔧 calculateInsurance() called');
-  console.log('     Product Cost:', productCost);
-  console.log('     Insurance %:', insurancePercentage);
-  console.log('     📌 Industry standard: 1-3% (you\'re using', insurancePercentage, '%)');
-  
-  const insurance = (productCost * insurancePercentage) / 100;
-  console.log('     Calculation:', productCost, '×', insurancePercentage, '/ 100 =', insurance);
-  console.log('     ✅ Insurance Cost:', insurance);
-  return insurance;
+  return productCost * (insurancePercentage / 100);
 }
 
+// ---------------------------------------------------------------------------
+// Customs Duty
+// ---------------------------------------------------------------------------
+
 /**
- * Calculate customs duty for a single product
+ * Duty for a single product line = quantity × unitPrice × (dutyPercentage / 100).
  */
 export function calculateProductDuty(
   quantity: number,
   unitPrice: number,
   dutyPercentage: number
 ): number {
-  const productValue = quantity * unitPrice;
-  const duty = (productValue * dutyPercentage) / 100;
-  console.log(`     Duty calc: (${quantity} × ${unitPrice}) × ${dutyPercentage}% = ${duty}`);
-  return duty;
+  return quantity * unitPrice * (dutyPercentage / 100);
 }
 
 /**
- * Calculate total customs duty for all products
+ * Total duty across all product lines.
  */
 export function calculateTotalDuty(
-  products: Array<{
-    quantity: number;
-    unitPrice: number;
-    dutyPercentage: number;
-  }>
+  products: Array<{ quantity: number; unitPrice: number; dutyPercentage: number }>
 ): number {
-  console.log('  🔧 calculateTotalDuty() called');
-  console.log('     Products:', products.length);
-  
-  const total = products.reduce((total, product, idx) => {
-    console.log(`     [${idx}] Calculating duty...`);
-    const duty = calculateProductDuty(
-      product.quantity,
-      product.unitPrice,
-      product.dutyPercentage
-    );
-    return total + duty;
-  }, 0);
-  
-  console.log('     ✅ Total Duty:', total);
-  return total;
+  return products.reduce(
+    (sum, p) => sum + calculateProductDuty(p.quantity, p.unitPrice, p.dutyPercentage),
+    0
+  );
 }
 
+// ---------------------------------------------------------------------------
+// VAT
+// ---------------------------------------------------------------------------
+
 /**
- * Calculate VAT (tax on: product cost + shipping + insurance + duty)
+ * VAT is charged on the full taxable base:
+ *   taxableBase = productCost + shippingCost + insuranceCost + totalDuty
+ *   VAT = taxableBase × (vatPercentage / 100)
+ *
+ * CRITICAL: All four components must be included — omitting any component
+ * (especially shipping) is a common and costly mistake.
  */
 export function calculateVAT(
   productCost: number,
@@ -218,30 +182,18 @@ export function calculateVAT(
   totalDuty: number,
   vatPercentage: number
 ): number {
-  console.log('  🔧 calculateVAT() called');
-  console.log('     Product Cost:', productCost);
-  console.log('     Shipping Cost:', shippingCost, '← MUST BE INCLUDED!');
-  console.log('     Insurance Cost:', insuranceCost);
-  console.log('     Total Duty:', totalDuty);
-  console.log('     VAT %:', vatPercentage);
-  
-  const taxableAmount = productCost + shippingCost + insuranceCost + totalDuty;
-  console.log('     Taxable Amount:', taxableAmount);
-  console.log('     Calculation:', productCost, '+', shippingCost, '+', insuranceCost, '+', totalDuty, '=', taxableAmount);
-  
-  const vat = (taxableAmount * vatPercentage) / 100;
-  console.log('     VAT Calculation:', taxableAmount, '×', vatPercentage, '/ 100 =', vat);
-  console.log('     ✅ VAT:', vat);
-  
-  if (shippingCost === 0) {
-    console.error('     🚨 WARNING: Shipping cost is 0! VAT will be incorrect!');
-  }
-  
-  return vat;
+  const taxableBase = productCost + shippingCost + insuranceCost + totalDuty;
+  return Math.round(taxableBase * (vatPercentage / 100) * 100) / 100;
 }
 
+// ---------------------------------------------------------------------------
+// Total Landed Cost
+// ---------------------------------------------------------------------------
+
 /**
- * Calculate total landed cost
+ * Total landed cost = productCost + shippingCost + insuranceCost + totalDuty + vat
+ *
+ * This is the full amount billed to the customer / the true cost of the shipment.
  */
 export function calculateTotalLandedCost(
   productCost: number,
@@ -250,180 +202,78 @@ export function calculateTotalLandedCost(
   totalDuty: number,
   vat: number
 ): number {
-  console.log('  🔧 calculateTotalLandedCost() called');
-  console.log('     Product Cost:', productCost);
-  console.log('     Shipping Cost:', shippingCost, '← CRITICAL!');
-  console.log('     Insurance Cost:', insuranceCost);
-  console.log('     Total Duty:', totalDuty);
-  console.log('     VAT:', vat);
-  
-  const total = productCost + shippingCost + insuranceCost + totalDuty + vat;
-  
-  console.log('     Calculation:');
-  console.log('       ', productCost);
-  console.log('       +', shippingCost, '(shipping)');
-  console.log('       +', insuranceCost, '(insurance)');
-  console.log('       +', totalDuty, '(duty)');
-  console.log('       +', vat, '(vat)');
-  console.log('       ─────────────');
-  console.log('       =', total);
-  console.log('     ✅ Total Landed Cost:', total);
-  
-  if (shippingCost === 0 || !shippingCost) {
-    console.error('     🚨 BUG: Shipping cost is', shippingCost, '- total will be wrong!');
-  }
-  
-  if (total === productCost) {
-    console.error('     🚨 CRITICAL BUG: Total equals product cost!');
-    console.error('     Nothing was added! Check all inputs!');
-  }
-  
-  return total;
+  return productCost + shippingCost + insuranceCost + totalDuty + vat;
 }
 
+// ---------------------------------------------------------------------------
+// Currency Conversion
+// ---------------------------------------------------------------------------
+
 /**
- * Convert USD to EGP
+ * Convert a USD amount to EGP using the supplied exchange rate.
  */
 export function convertToEGP(amountUSD: number, exchangeRate: number): number {
-  console.log('  🔧 convertToEGP() called');
-  console.log('     Amount USD:', amountUSD);
-  console.log('     Exchange Rate:', exchangeRate);
-  const egp = amountUSD * exchangeRate;
-  console.log('     Result:', amountUSD, '×', exchangeRate, '=', egp, 'EGP');
-  return egp;
+  return amountUSD * exchangeRate;
 }
 
+// ---------------------------------------------------------------------------
+// Per-Unit Cost
+// ---------------------------------------------------------------------------
+
 /**
- * Calculate cost per unit
+ * Average cost per unit across the entire shipment.
+ * Returns 0 when totalQuantity is 0 to avoid division by zero.
  */
 export function calculateCostPerUnit(
   totalCost: number,
   totalQuantity: number
 ): number {
   if (totalQuantity === 0) return 0;
-  const perUnit = totalCost / totalQuantity;
-  console.log('  🔧 calculateCostPerUnit():', totalCost, '/', totalQuantity, '=', perUnit);
-  return perUnit;
+  // Round to 2 decimal places to avoid floating-point noise
+  return Math.round((totalCost / totalQuantity) * 100) / 100;
 }
 
+// ---------------------------------------------------------------------------
+// Complete Shipment Calculation
+// ---------------------------------------------------------------------------
+
 /**
- * Main function: Calculate complete shipment cost breakdown
- * 
- * 🆕 UPDATED: Now supports both manual and weight-based shipping cost
- * 
- * @param products Array of products with details
- * @param shippingCostOrWeight Either manual shipping cost OR weight for auto-calculation
- * @param exchangeRate USD to EGP exchange rate
- * @param insurancePercentage Insurance percentage (typically 2%)
- * @param vatPercentage VAT percentage (typically 14%)
- * @param useWeightBased If true, treat shippingCostOrWeight as weight
- * @param dimensions Optional dimensions for volumetric weight
+ * One-shot calculation for a full shipment.
+ *
+ * @param products         Array of product lines with duty percentages.
+ * @param shippingInput    Either a manual shipping cost (USD) or weight in kg
+ *                         (interpreted based on isWeightBased).
+ * @param exchangeRate     USD → EGP rate.
+ * @param insurancePercent Insurance rate as a percentage (e.g. 2 = 2%).
+ * @param vatPercent       VAT rate as a percentage (e.g. 14 = 14%).
+ * @param isWeightBased    When true, shippingInput is treated as weight in kg.
  */
 export function calculateShipmentCosts(
-  products: Array<{
-    productId: string;
-    productName: string;
-    hsCode: string;
-    quantity: number;
-    unitPrice: number;
-    dutyPercentage: number;
-  }>,
-  shippingCostOrWeight: number,
+  products: Product[],
+  shippingInput: number,
   exchangeRate: number,
-  insurancePercentage: number = 2,
-  vatPercentage: number = 14,
-  useWeightBased: boolean = false,
-  dimensions?: { length: number; width: number; height: number } | null
-): ShipmentCostBreakdown {
-  console.log('\n' + '🔥'.repeat(80));
-  console.log('🔥 calculateShipmentCosts() FUNCTION CALLED');
-  console.log('🔥'.repeat(80));
-  console.log('📥 PARAMETERS RECEIVED:');
-  console.log('   products:', products.length, 'items');
-  console.log('   shippingCostOrWeight:', shippingCostOrWeight, useWeightBased ? '(weight in kg)' : '(manual cost in USD)');
-  console.log('   exchangeRate:', exchangeRate, '(type:', typeof exchangeRate, ')');
-  console.log('   insurancePercentage:', insurancePercentage, '(type:', typeof insurancePercentage, ')');
-  console.log('   vatPercentage:', vatPercentage, '(type:', typeof vatPercentage, ')');
-  console.log('   useWeightBased:', useWeightBased);
-  console.log('   dimensions:', dimensions || 'not provided');
-  
-  // 1. Calculate product cost
-  console.log('\n[STEP 1] Calculating product cost...');
+  insurancePercent: number,
+  vatPercent: number,
+  isWeightBased: boolean
+): ShipmentCosts {
+  // 1. Product cost
   const productCost = calculateProductCost(products);
-  
-  // 2. Calculate shipping cost (either manual or weight-based)
-  console.log('\n[STEP 2] Calculating shipping cost...');
-  let shippingCost: number;
-  
-  if (useWeightBased && shippingCostOrWeight > 0) {
-    console.log('   Using WEIGHT-BASED calculation');
-    if (dimensions) {
-      shippingCost = calculateShippingCostVolumetric(shippingCostOrWeight, dimensions);
-    } else {
-      shippingCost = calculateShippingCostByWeight(shippingCostOrWeight);
-    }
-  } else {
-    console.log('   Using MANUAL shipping cost');
-    shippingCost = Number(shippingCostOrWeight) || 0;
-    
-    if (typeof shippingCostOrWeight !== 'number') {
-      console.error('   🚨 CRITICAL: shippingCost is not a number! Type:', typeof shippingCostOrWeight);
-      console.error('   Value:', shippingCostOrWeight);
-      console.error('   Converting to number...');
-      shippingCost = Number(shippingCostOrWeight) || 0;
-      console.log('   Converted to:', shippingCost);
-    }
-    
-    if (shippingCost === 0) {
-      console.warn('   ⚠️  WARNING: Shipping cost is 0! This might be intentional or a bug.');
-    }
-  }
-  
-  console.log('   ✅ Final Shipping Cost: $', shippingCost);
-  
-  // 3. Calculate insurance (based on product value)
-  console.log('\n[STEP 3] Calculating insurance...');
-  const insuranceCost = calculateInsurance(productCost, insurancePercentage);
-  
-  // 4. Calculate duties for each product
-  console.log('\n[STEP 4] Calculating product duties...');
-  const productCalculations: ProductCalculation[] = products.map((product, idx) => {
-    console.log(`   Processing product [${idx}]: ${product.productName}`);
-    const totalProductCost = product.quantity * product.unitPrice;
-    const dutyAmount = calculateProductDuty(
-      product.quantity,
-      product.unitPrice,
-      product.dutyPercentage
-    );
-    
-    return {
-      productId: product.productId,
-      productName: product.productName,
-      hsCode: product.hsCode,
-      quantity: product.quantity,
-      unitPrice: product.unitPrice,
-      totalProductCost,
-      dutyPercentage: product.dutyPercentage,
-      dutyAmount,
-    };
-  });
-  
-  // 5. Calculate total duty
-  console.log('\n[STEP 5] Calculating total duty...');
+
+  // 2. Shipping cost
+  const shippingCost = isWeightBased
+    ? calculateShippingCostByWeight(shippingInput)
+    : shippingInput;
+
+  // 3. Insurance
+  const insuranceCost = calculateInsurance(productCost, insurancePercent);
+
+  // 4. Customs duty
   const totalDuty = calculateTotalDuty(products);
-  
-  // 6. Calculate VAT
-  console.log('\n[STEP 6] Calculating VAT...');
-  const vat = calculateVAT(
-    productCost,
-    shippingCost,
-    insuranceCost,
-    totalDuty,
-    vatPercentage
-  );
-  
-  // 7. Calculate total landed cost
-  console.log('\n[STEP 7] Calculating total landed cost...');
+
+  // 5. VAT
+  const vat = calculateVAT(productCost, shippingCost, insuranceCost, totalDuty, vatPercent);
+
+  // 6. Total landed cost (USD)
   const totalLandedCost = calculateTotalLandedCost(
     productCost,
     shippingCost,
@@ -431,73 +281,57 @@ export function calculateShipmentCosts(
     totalDuty,
     vat
   );
-  
-  // 8. Convert to EGP
-  console.log('\n[STEP 8] Converting to EGP...');
+
+  // 7. Total landed cost (EGP)
   const totalLandedCostEGP = convertToEGP(totalLandedCost, exchangeRate);
-  
-  // 9. Calculate total quantity
-  console.log('\n[STEP 9] Calculating total quantity...');
+
+  // 8. Totals
   const totalQuantity = products.reduce((sum, p) => sum + p.quantity, 0);
-  console.log('   Total Quantity:', totalQuantity);
-  
-  // 10. Calculate per unit costs
-  console.log('\n[STEP 10] Calculating per-unit costs...');
   const costPerUnit = calculateCostPerUnit(totalLandedCost, totalQuantity);
-  const costPerUnitEGP = convertToEGP(costPerUnit, exchangeRate);
-  
-  const result = {
-    productCost: Number(productCost.toFixed(2)),
-    shippingCost: Number(shippingCost.toFixed(2)),
-    insuranceCost: Number(insuranceCost.toFixed(2)),
-    insurancePercentage,
-    totalDuty: Number(totalDuty.toFixed(2)),
-    vat: Number(vat.toFixed(2)),
-    vatPercentage,
-    totalLandedCost: Number(totalLandedCost.toFixed(2)),
-    totalLandedCostEGP: Number(totalLandedCostEGP.toFixed(2)),
+
+  // 9. Per-product breakdown
+  const productLines: ProductCostLine[] = products.map((p) => ({
+    productId: p.productId,
+    productName: p.productName,
+    hsCode: p.hsCode,
+    quantity: p.quantity,
+    unitPrice: p.unitPrice,
+    dutyPercentage: p.dutyPercentage,
+    totalProductCost: p.quantity * p.unitPrice,
+    dutyAmount: calculateProductDuty(p.quantity, p.unitPrice, p.dutyPercentage),
+  }));
+
+  return {
+    productCost,
+    shippingCost,
+    insuranceCost,
+    totalDuty,
+    vat,
+    totalLandedCost,
+    totalLandedCostEGP,
     totalQuantity,
-    costPerUnit: Number(costPerUnit.toFixed(2)),
-    costPerUnitEGP: Number(costPerUnitEGP.toFixed(2)),
-    exchangeRate,
-    products: productCalculations,
+    costPerUnit,
+    products: productLines,
   };
-  
-  console.log('\n' + '✅'.repeat(80));
-  console.log('✅ CALCULATION COMPLETE - RETURNING RESULT');
-  console.log('✅'.repeat(80));
-  console.log('📊 FINAL BREAKDOWN:');
-  console.log('   Product Cost:        $', result.productCost);
-  console.log('   Shipping Cost:       $', result.shippingCost, useWeightBased ? '(weight-based)' : '(manual)');
-  console.log('   Insurance Cost:      $', result.insuranceCost, `(${insurancePercentage}% of product value)`);
-  console.log('   Total Duty:          $', result.totalDuty);
-  console.log('   VAT:                 $', result.vat);
-  console.log('   ──────────────────────────────');
-  console.log('   TOTAL LANDED COST:   $', result.totalLandedCost);
-  console.log('   TOTAL LANDED COST:   E£', result.totalLandedCostEGP);
-  console.log('   ──────────────────────────────');
-  console.log('   Cost Per Unit:       $', result.costPerUnit);
-  console.log('   Total Quantity:       ', result.totalQuantity);
-  console.log('✅'.repeat(80) + '\n');
-  
-  // Final verification
-  if (result.shippingCost === 0) {
-    console.error('🚨🚨🚨 FINAL CHECK FAILED: shippingCost in result is 0!');
-  }
-  if (result.totalLandedCost === result.productCost) {
-    console.error('🚨🚨🚨 FINAL CHECK FAILED: Total equals product cost!');
-  }
-  
-  return result;
 }
 
+// ---------------------------------------------------------------------------
+// Currency Formatting
+// ---------------------------------------------------------------------------
+
 /**
- * Format currency for display
+ * Format a monetary amount with the correct currency symbol and 2 decimal places.
+ *
+ * Supported currencies:
+ *   USD  →  $1,234.56
+ *   EGP  →  E£1,234.56
  */
 export function formatCurrency(amount: number, currency: 'USD' | 'EGP'): string {
-  const symbol = currency === 'USD' ? '$' : 'E£';
-  return `${symbol}${amount.toLocaleString('en-US', {
+  const formatted = amount.toLocaleString('en-US', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
-  })}`;
+  });
+
+  if (currency === 'EGP') return `E£${formatted}`;
+  return `$${formatted}`;
 }
