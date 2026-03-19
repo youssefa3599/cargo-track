@@ -289,7 +289,7 @@ export async function PUT(
         body.exchangeRate || existingShipment.exchangeRate || 50,
         body.insurancePercentage || existingShipment.insurancePercentage || 2,
         body.vatPercentage || existingShipment.vatPercentage || 14,
-        body.isWeightBased ?? false
+       body.isWeightBased ?? false
       );
 
 
