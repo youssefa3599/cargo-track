@@ -156,7 +156,7 @@ export async function POST(request: NextRequest) {
     const costBreakdown: ICostBreakdown = calculateShipmentCosts(
       productsForCalc, shippingCost, exchangeRate,
       insurancePercentage || 2, vatPercentage || 14,
-      useWeightBased || false, dimensions || null
+      useWeightBased || false
     );
 
     const shipmentId = `SHP-${Math.random().toString(36).substring(2, 9).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
