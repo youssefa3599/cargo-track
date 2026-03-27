@@ -93,7 +93,7 @@ interface Message {
   id: string;
   role: 'user' | 'assistant';
   text: string;
-  action?: 'navigate' | 'fetch_shipment' | 'fetch_customer' | 'fetch_supplier' | 'fetch_invoice' | 'answer' | 'unknown';
+  action?: 'navigate' | 'fetch_shipment' | 'fetch_customer' | 'fetch_supplier' | 'fetch_invoice' | 'answer' | 'semantic_results' | 'unknown';
   route?: string | null;
   shipments?: ShipmentResult[];
   customers?: CustomerResult[];
@@ -103,35 +103,16 @@ interface Message {
 }
 
 interface AICommandResponse {
-  action: 'navigate' | 'fetch_shipment' | 'fetch_customer' | 'fetch_supplier' | 'fetch_invoice' | 'answer' | 'unknown';
+  action: 'navigate' | 'fetch_shipment' | 'fetch_customer' | 'fetch_supplier' | 'fetch_invoice' | 'answer' | 'semantic_results' | 'unknown';
   route: string | null;
   message: string;
   confidence: number;
-  shipmentQuery: {
-    shipmentId: string | null;
-    customerName: string | null;
-    origin: string | null;
-    destination: string | null;
-    status: string | null;
-    trackingNumber?: string | null;
-  } | null;
-  customerQuery: {
-    name: string | null;
-    email: string | null;
-    phone: string | null;
-  } | null;
-  supplierQuery: {
-    name: string | null;
-    email: string | null;
-    contactPerson: string | null;
-  } | null;
-  invoiceQuery: {
-    invoiceNumber: string | null;
-    customerName: string | null;
-    status: string | null;
-    dateFrom: string | null;
-    dateTo: string | null;
-  } | null;
+  // Data returned directly by the backend (no re-fetching needed)
+  shipments?: ShipmentResult[];
+  customers?: CustomerResult[];
+  suppliers?: SupplierResult[];
+  invoices?: InvoiceResult[];
+  semanticResults?: any[];
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -669,100 +650,6 @@ export default function AIAssistant() {
     }]);
   };
 
-  // ── Fetch Functions ─────────────────────────────────────────────────────────
-
-  const fetchShipments = async (query: AICommandResponse['shipmentQuery']): Promise<ShipmentResult[]> => {
-    if (!query) return [];
-    const token = Cookies.get('token');
-    if (!token) return [];
-
-    // ✅ FIXED: shipmentId and trackingNumber go through directFetch — never cascade
-    // cascade slices to 3 chars which matches everything and fuzzy scoring then fails
-    if (query.shipmentId) {
-      return directFetch('/api/shipments', query.shipmentId, token, 'shipments',
-        query.status ? { status: query.status } : undefined);
-    }
-
-    if (query.trackingNumber) {
-      return directFetch('/api/shipments', query.trackingNumber, token, 'shipments',
-        query.status ? { status: query.status } : undefined);
-    }
-
-    // Names, origins, destinations → cascade fetch with fuzzy matching
-    if (query.customerName) {
-      return cascadeFetch('/api/shipments', query.customerName, token, 'shipment',
-        query.status ? { status: query.status } : undefined);
-    }
-
-    const params = new URLSearchParams({ limit: '5' });
-    if (query.origin)      params.set('search', query.origin);
-    if (query.destination) params.set('search', query.destination);
-    if (query.status)      params.set('status', query.status);
-
-    const res = await fetch(`/api/shipments?${params.toString()}`, {
-      headers: { Authorization: `Bearer ${token}` }, credentials: 'include',
-    });
-    if (!res.ok) return [];
-    const data = await res.json();
-    const results = data.shipments || data.data || [];
-    const searchTerm = query.origin || query.destination || '';
-    return filterResults(results, searchTerm, 'shipment').slice(0, 5);
-  };
-
-  const fetchCustomers = async (query: AICommandResponse['customerQuery']): Promise<CustomerResult[]> => {
-    if (!query) return [];
-    const token = Cookies.get('token');
-    if (!token) return [];
-    const searchTerm = query.name || query.email || query.phone || '';
-    if (!searchTerm) return [];
-    return cascadeFetch('/api/customers', searchTerm, token, 'customer');
-  };
-
-  const fetchSuppliers = async (query: AICommandResponse['supplierQuery']): Promise<SupplierResult[]> => {
-    if (!query) return [];
-    const token = Cookies.get('token');
-    if (!token) return [];
-    const searchTerm = query.name || query.email || query.contactPerson || '';
-    if (!searchTerm) return [];
-    return cascadeFetch('/api/suppliers', searchTerm, token, 'supplier');
-  };
-
-  const fetchInvoices = async (query: AICommandResponse['invoiceQuery']): Promise<InvoiceResult[]> => {
-    if (!query) return [];
-    const token = Cookies.get('token');
-    if (!token) return [];
-
-    // ✅ FIXED: invoiceNumber goes through directFetch — never cascade
-    // INV-20241201-0001 sliced to "INV" matches everything; fuzzy then scores it low
-    if (query.invoiceNumber) {
-      const extraParams: Record<string, string> = {};
-      if (query.status) extraParams.status = query.status;
-      return directFetch('/api/invoices', query.invoiceNumber, token, 'invoices', extraParams);
-    }
-
-    // Customer name → cascade fetch with fuzzy matching
-    if (query.customerName) {
-      const extraParams: Record<string, string> = {};
-      if (query.status)   extraParams.status   = query.status;
-      if (query.dateFrom) extraParams.dateFrom = query.dateFrom;
-      if (query.dateTo)   extraParams.dateTo   = query.dateTo;
-      return cascadeFetch('/api/invoices', query.customerName, token, 'invoice', extraParams);
-    }
-
-    // Status / date only — direct fetch, no search term needed
-    const params = new URLSearchParams({ limit: '10' });
-    if (query.status)   params.set('status',   query.status);
-    if (query.dateFrom) params.set('dateFrom', query.dateFrom);
-    if (query.dateTo)   params.set('dateTo',   query.dateTo);
-
-    const res = await fetch(`/api/invoices?${params.toString()}`, {
-      headers: { Authorization: `Bearer ${token}` }, credentials: 'include',
-    });
-    if (!res.ok) return [];
-    const data = await res.json();
-    return (data.invoices || data.data || []).slice(0, 10);
-  };
-
   // ── Core Send ───────────────────────────────────────────────────────────────
 
   const handleSend = async (overrideText?: string) => {
@@ -778,12 +665,18 @@ export default function AIAssistant() {
         method:      'POST',
         headers:     { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body:        JSON.stringify({ message: text }),
+        body:        JSON.stringify({
+          message: text,
+          history: messages
+            .filter(m => m.role === 'assistant' && m.action === 'answer')
+            .slice(-6)
+            .map(m => ({ role: m.role, text: m.text })),
+        }),
       });
       const data: AICommandResponse = await res.json();
 
       if (data.action === 'fetch_shipment') {
-        const shipments = await fetchShipments(data.shipmentQuery);
+        const shipments = data.shipments ?? [];
         if (shipments.length === 0) {
           addAssistantMessage("I couldn't find any shipments matching that. Try a different ID, tracking number, or customer name.", 'fetch_shipment');
         } else {
@@ -791,7 +684,7 @@ export default function AIAssistant() {
         }
 
       } else if (data.action === 'fetch_customer') {
-        const customers = await fetchCustomers(data.customerQuery);
+        const customers = data.customers ?? [];
         if (customers.length === 0) {
           addAssistantMessage("I couldn't find any customers matching that. Try a different name.", 'fetch_customer');
         } else {
@@ -799,7 +692,7 @@ export default function AIAssistant() {
         }
 
       } else if (data.action === 'fetch_supplier') {
-        const suppliers = await fetchSuppliers(data.supplierQuery);
+        const suppliers = data.suppliers ?? [];
         if (suppliers.length === 0) {
           addAssistantMessage("I couldn't find any suppliers matching that. Try a different name.", 'fetch_supplier');
         } else {
@@ -807,7 +700,7 @@ export default function AIAssistant() {
         }
 
       } else if (data.action === 'fetch_invoice') {
-        const invoices = await fetchInvoices(data.invoiceQuery);
+        const invoices = data.invoices ?? [];
         if (invoices.length === 0) {
           addAssistantMessage("I couldn't find any invoices matching that. Try an invoice number, customer name, or status like 'unpaid'.", 'fetch_invoice');
         } else {

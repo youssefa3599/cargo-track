@@ -317,8 +317,11 @@ const ShipmentSchema = new Schema<IShipment>(
       type: String,
       trim: true,
       uppercase: true,
+      // unique + sparse: MongoDB skips null values in the index, so nulls don't
+      // conflict with each other — but two shipments with the SAME non-null
+      // tracking number will correctly be rejected with a duplicate key error.
+      unique: true,
       sparse: true,
-      index: true,
     },
     carrier: {
       type: String,
@@ -378,7 +381,6 @@ ShipmentSchema.index({ companyName: 1, shippingDate: -1 });
 ShipmentSchema.index({ companyId: 1, status: 1 });
 ShipmentSchema.index({ customerId: 1 });
 ShipmentSchema.index({ supplierId: 1 });
-ShipmentSchema.index({ trackingNumber: 1 });
 ShipmentSchema.index({ currentLocation: 1 });
 
 // ============================================
@@ -386,7 +388,24 @@ ShipmentSchema.index({ currentLocation: 1 });
 // ============================================
 
 /**
- * Date validation middleware
+ * Guard against duplicate trackingNumber at the application layer.
+ * The sparse unique index handles DB-level enforcement, but this gives
+ * a clear error message before the save attempt hits MongoDB.
+ */
+ShipmentSchema.pre('save', async function (next) {
+  if (this.trackingNumber && this.isModified('trackingNumber')) {
+    const existing = await mongoose.models.Shipment?.findOne({
+      trackingNumber: this.trackingNumber,
+      _id: { $ne: this._id },
+    });
+    if (existing) {
+      return next(new Error(`Tracking number "${this.trackingNumber}" is already assigned to shipment ${existing.shipmentId}`));
+    }
+  }
+  next();
+});
+
+/**
  */
 ShipmentSchema.path('estimatedArrival').validate(function (value) {
   if (this.shippingDate && value <= this.shippingDate) {

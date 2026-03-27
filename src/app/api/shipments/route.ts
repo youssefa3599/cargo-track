@@ -159,7 +159,27 @@ export async function POST(request: NextRequest) {
       useWeightBased || false
     );
 
-    const shipmentId = `SHP-${Math.random().toString(36).substring(2, 9).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+    // ── Generate a collision-safe shipmentId ──────────────────────────────────
+    // Math.random() alone causes duplicates. We now use a timestamp + random
+    // suffix and retry up to 5 times if the generated ID already exists in DB.
+    const generateShipmentId = () => {
+      const ts    = Date.now().toString(36).toUpperCase();          // base-36 timestamp (always unique to ms)
+      const rand  = Math.random().toString(36).substring(2, 7).toUpperCase(); // 5 random chars
+      return `SHP-${ts}-${rand}`;
+    };
+
+    let shipmentId = '';
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const candidate = generateShipmentId();
+      const existing  = await Shipment.exists({ shipmentId: candidate });
+      if (!existing) { shipmentId = candidate; break; }
+      console.warn(`⚠️  shipmentId collision on attempt ${attempt + 1}: ${candidate} — retrying…`);
+    }
+    if (!shipmentId) {
+      // Absolute fallback: UUID-style with full timestamp to guarantee uniqueness
+      shipmentId = `SHP-${Date.now()}-${Math.random().toString(36).substring(2, 10).toUpperCase()}`;
+    }
+    console.log('🆔 Generated shipmentId:', shipmentId);
 
     console.log('💾 Creating shipment object with data:');
     console.log('  shipmentId:', shipmentId);
@@ -228,6 +248,15 @@ export async function POST(request: NextRequest) {
     
     if (error.name === 'ValidationError') {
       return NextResponse.json({ error: 'Validation failed', details: error.message }, { status: 400 });
+    }
+    // MongoDB duplicate key error (code 11000) — catches any remaining race-condition collisions
+    if (error.code === 11000) {
+      const field = Object.keys(error.keyPattern || {})[0] || 'field';
+      console.error(`💥 Duplicate key on field "${field}":`, error.keyValue);
+      return NextResponse.json(
+        { error: `Duplicate value for ${field}. Please try again.`, details: error.message },
+        { status: 409 }
+      );
     }
     return NextResponse.json({ error: 'Failed to create shipment', details: error.message }, { status: 500 });
   }

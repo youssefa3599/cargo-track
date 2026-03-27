@@ -480,6 +480,17 @@ export default function EditShipmentPage() {
         return;
       }
 
+      // ✅ VALIDATION: Prevent adding tracking number if it wasn't present initially
+      const originalTracking = shipment?.trackingNumber || '';
+      const hasOriginalTracking = originalTracking.trim() !== '';
+      const hasNewTracking = formData.trackingNumber.trim() !== '';
+
+      if (!hasOriginalTracking && hasNewTracking) {
+        setError('Cannot add tracking number during edit. Tracking numbers must be set during shipment creation.');
+        setSaving(false);
+        return;
+      }
+
       const validProducts = selectedProducts.filter(p => p.productId && p.quantity > 0);
       if (validProducts.length === 0) {
         setError('Please add at least one product');
@@ -519,7 +530,15 @@ export default function EditShipmentPage() {
       };
 
       if (formData.carrier) updateData.carrier = formData.carrier;
-      if (formData.trackingNumber) updateData.trackingNumber = formData.trackingNumber;
+
+      // ✅ FIX: Only send trackingNumber if it actually changed from the original.
+      // - Unchanged → not included in payload (no unnecessary writes)
+      // - Updated   → sent as new value (MongoDB unique index enforces no duplicates)
+      // - Cleared   → sent as null (sparse index allows multiple nulls)
+      if (formData.trackingNumber !== originalTracking) {
+        updateData.trackingNumber = formData.trackingNumber || null;
+      }
+
       if (formData.weight) updateData.weight = parseFloat(formData.weight);
       if (formData.notes) updateData.notes = formData.notes;
       if (formData.dimensionLength || formData.dimensionWidth || formData.dimensionHeight) {
@@ -603,6 +622,9 @@ export default function EditShipmentPage() {
       </AnimatedPage>
     );
   }
+
+  // ✅ NEW: Check if shipment originally had a tracking number
+  const hadOriginalTrackingNumber = !!(shipment?.trackingNumber && shipment.trackingNumber.trim() !== '');
 
   return (
     <AnimatedPage>
@@ -947,14 +969,26 @@ export default function EditShipmentPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="dark-form-label">Tracking Number</label>
+                  <label className="dark-form-label">
+                    Tracking Number
+                    {!hadOriginalTrackingNumber && (
+                      <span className="text-xs text-gray-400 ml-2">(Read-only - not set at creation)</span>
+                    )}
+                  </label>
                   <input
                     type="text"
                     name="trackingNumber"
                     value={formData.trackingNumber}
                     onChange={handleInputChange}
                     className="dark-form-input"
+                    disabled={!hadOriginalTrackingNumber}
+                    placeholder={!hadOriginalTrackingNumber ? 'Cannot be added during edit' : ''}
                   />
+                  {!hadOriginalTrackingNumber && (
+                    <p className="mt-1 text-xs text-red-400">
+                      🔒 Tracking number was not set during creation and cannot be added now
+                    </p>
+                  )}
                 </div>
                 <div>
                   <label className="dark-form-label">Weight (kg)</label>
