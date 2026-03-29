@@ -11,6 +11,7 @@ import Shipment from '@/models/Shipment';
 import Customer from '@/models/Customer';
 import Supplier from '@/models/Supplier';
 import Invoice from '@/models/Invoice';
+import Product from '@/models/Product';
 import { semanticSearch } from '@/lib/services/search';
 
 // ── Lazy Gemini client ────────────────────────────────────────────────────────
@@ -54,6 +55,18 @@ SHIPMENTS collection:
   notes             — any extra notes
   createdAt         — when the record was created
 
+PRODUCTS collection:
+  name              — product name (e.g. "Steel Pipes", "Cotton T-Shirts")
+  description       — optional product description
+  hsCode            — HS tariff code (e.g. "7304.31", "6109.10")
+  unitPrice         — price per unit (in the company's default currency)
+  dutyPercentage    — import duty rate as a percentage (e.g. 15 means 15%)
+  supplierId        — ID of the linked supplier (can be null)
+  companyName       — company that owns this product
+  companyId         — company ID
+  createdBy         — who created it
+  createdAt         — when the record was created
+
 CUSTOMERS collection:
   name, email, phone, address, country, notes, createdAt
 
@@ -68,6 +81,9 @@ INVOICES collection:
 ═══════════════════════════════════════════
 TOOL SELECTION — HOW TO DECIDE
 ═══════════════════════════════════════════
+
+Use query_products for ANY filter on product fields:
+  → name, description, hsCode, supplierId, minPrice, maxPrice, minDuty, maxDuty
 
 Use query_shipments for ANY filter on shipment fields:
   → carrier, origin, destination, status, customerName, supplierName,
@@ -84,11 +100,60 @@ Use query_invoices for filters on invoice fields:
   → invoiceNumber, customerName, status, minAmount, maxAmount, dueDateFrom, dueDateTo
 
 Use aggregate_data for:
-  → count, sum, average, max, min, group_by — on any collection
+  → count, sum, average, max, min, group_by — on any collection including products
 
 Use semantic_search for:
   → fuzzy/partial names, natural language descriptions, "find something like X"
   → ALWAYS use this as a FALLBACK if a direct query returns 0 results
+
+═══════════════════════════════════════════
+EXAMPLES — PRODUCT QUERIES
+═══════════════════════════════════════════
+
+Q: "show me all products" / "list products"
+→ query_products()
+
+Q: "products over $50" / "products costing more than 50" / "expensive products"
+→ query_products(minPrice: 50)
+
+Q: "products under $20" / "cheap products"
+→ query_products(maxPrice: 20)
+
+Q: "products between $10 and $100"
+→ query_products(minPrice: 10, maxPrice: 100)
+
+Q: "find product Steel Pipes" / "search for cotton"
+→ query_products(name: "Steel")
+
+Q: "products with HS code 7304" / "find HS code 6109"
+→ query_products(hsCode: "7304")
+
+Q: "products with duty over 15%" / "high duty products"
+→ query_products(minDuty: 15)
+
+Q: "products from supplier lolo" / "lolo's products"
+→ 1. query_suppliers(name: "lolo") → get _id
+→ 2. query_products(supplierId: "{_id}")
+
+Q: "how many products do we have"
+→ aggregate_data(collection: "products", operation: "count")
+
+Q: "average product price"
+→ aggregate_data(collection: "products", operation: "average", field: "unitPrice")
+
+Q: "most expensive product"
+→ aggregate_data(collection: "products", operation: "max", field: "unitPrice")
+
+Q: "products grouped by duty percentage"
+→ aggregate_data(collection: "products", operation: "group_by", groupBy: "dutyPercentage")
+
+Q: "go to products" / "show products page"
+→ navigate(route: "/products")
+
+Q: "open product Steel Pipes" / "show me Steel Pipes product"
+→ 1. query_products(name: "Steel Pipes") → get _id
+→ 2. If exactly 1 result: navigate(route: "/products/{_id}", entityType: "product", entityId: "{_id}")
+→ 3. If multiple: return as product cards
 
 ═══════════════════════════════════════════
 EXAMPLES — SHIPMENT QUERIES
@@ -161,6 +226,9 @@ EXAMPLES — NAVIGATION
 Q: "go to customers" / "show customers page" / "navigate to suppliers"
 → navigate(route: "/customers") or navigate(route: "/suppliers")
 
+Q: "go to products" / "show products page"
+→ navigate(route: "/products")
+
 Q: "show me customer Ahmed" / "open Ahmed's profile" (when query finds exactly 1 result)
 → 1. query_customers(name: "Ahmed") → get _id
 → 2. If exactly 1 result: navigate(route: "/customers/{_id}", entityType: "customer", entityId: "{_id}")
@@ -177,7 +245,7 @@ Q: "show invoice INV-5678" / "view invoice INV-5678"
 CRITICAL NAVIGATION RULES:
 - For "show me X" / "open X" queries:
   → If query returns exactly 1 result AND user intent is to VIEW (not just list): use navigate with entityId
-  → If query returns multiple results: return as cards (fetch_customer, fetch_shipment, etc.) for user to choose
+  → If query returns multiple results: return as cards (fetch_customer, fetch_shipment, fetch_product, etc.) for user to choose
   → If query returns 0 results: say "not found" and suggest alternatives
 - For "go to page" / "navigate to" without a specific entity: use navigate with just the list page route
 
@@ -226,6 +294,12 @@ Q: "how many unpaid invoices"
 
 Q: "total unpaid invoice amount"
 → aggregate_data(collection: "invoices", operation: "sum", field: "totalAmount", filter: {status: "unpaid"})
+
+Q: "how many products do we have"
+→ aggregate_data(collection: "products", operation: "count")
+
+Q: "average product unit price"
+→ aggregate_data(collection: "products", operation: "average", field: "unitPrice")
 
 ═══════════════════════════════════════════
 EXAMPLES — CUSTOMERS & SUPPLIERS
@@ -330,13 +404,14 @@ CRITICAL RULES
 2. NEVER ask clarifying questions — if the user gives partial info, query with what you have and return results
 3. If a filter field is unknown or vague (e.g. "West Coast"), ignore it and query with the other filters provided
 4. Match the user's intent to the right tool using the examples above
-5. Combine multiple filters in one query_shipments call when needed
+5. Combine multiple filters in one query call when needed
 6. Numbers in examples are just patterns — use whatever number the user says
 7. Country/city names in examples are just patterns — use whatever the user says
 8. If 0 results → always try semantic_search as fallback before giving up
 9. Format numbers nicely: $12,450 not 12450
 10. Be conversational — summarize results naturally, don't just dump raw data
 11. For write operations: ALWAYS read-before-write, NEVER delete/update without a filter
+12. "products" queries MUST use query_products — NEVER map product queries to shipments
 
 Today's date: ${new Date().toISOString().split('T')[0]}
 `;
@@ -350,7 +425,7 @@ const functionDeclarations: FunctionDeclaration[] = [
       type: 'object',
       properties: {
         query: { type: 'string', description: 'Natural language search query (e.g., "Lulu shipments", "expensive electronics")' },
-        type: { type: 'string', description: 'Filter by type: shipment | customer | supplier | invoice | all' },
+        type: { type: 'string', description: 'Filter by type: shipment | customer | supplier | invoice | product | all' },
         topK: { type: 'number', description: 'Number of results (default 5, max 20)' },
       },
       required: ['query'],
@@ -362,13 +437,33 @@ const functionDeclarations: FunctionDeclaration[] = [
     parametersJsonSchema: {
       type: 'object',
       properties: {
-        collection: { type: 'string', description: 'shipments | customers | suppliers | invoices' },
+        collection: { type: 'string', description: 'shipments | customers | suppliers | invoices | products' },
         operation: { type: 'string', description: 'count | sum | average | max | min | group_by' },
-        field: { type: 'string', description: 'Field to aggregate (totalCost, companyProfit, customerPayment, profitMargin, etc.)' },
-        groupBy: { type: 'string', description: 'Field to group by (customerName, status, supplierName, etc.)' },
+        field: { type: 'string', description: 'Field to aggregate (totalCost, companyProfit, customerPayment, profitMargin, unitPrice, dutyPercentage, etc.)' },
+        groupBy: { type: 'string', description: 'Field to group by (customerName, status, supplierName, dutyPercentage, etc.)' },
         filter: { type: 'object', description: 'Optional filters (e.g., {status: "pending"})' },
       },
       required: ['collection', 'operation'],
+    },
+  },
+  {
+    name: 'query_products',
+    description: 'Query products with filters. Use for any question about products, items, goods, or catalog.',
+    parametersJsonSchema: {
+      type: 'object',
+      properties: {
+        name:        { type: 'string', description: 'Product name partial match (e.g. "Steel", "Cotton")' },
+        description: { type: 'string', description: 'Description partial match' },
+        hsCode:      { type: 'string', description: 'HS tariff code partial match (e.g. "7304")' },
+        supplierId:  { type: 'string', description: 'Supplier ID to filter products by supplier' },
+        minPrice:    { type: 'number', description: 'Minimum unit price' },
+        maxPrice:    { type: 'number', description: 'Maximum unit price' },
+        minDuty:     { type: 'number', description: 'Minimum duty percentage' },
+        maxDuty:     { type: 'number', description: 'Maximum duty percentage' },
+        limit:       { type: 'number', description: 'Max results (default 10, max 50)' },
+        sortBy:      { type: 'string', description: 'Sort field: unitPrice | dutyPercentage | createdAt | name' },
+        sortOrder:   { type: 'string', description: 'asc or desc (default desc)' },
+      },
     },
   },
   {
@@ -456,13 +551,13 @@ const functionDeclarations: FunctionDeclaration[] = [
     parametersJsonSchema: {
       type: 'object',
       properties: {
-        route: { 
-          type: 'string', 
-          description: 'Route path. List pages: /shipments | /customers | /suppliers | /invoices | /analytics. Detail pages: /shipments/{id} | /customers/{id} | /suppliers/{id} | /invoices/{id}' 
+        route: {
+          type: 'string',
+          description: 'Route path. List pages: /shipments | /customers | /suppliers | /invoices | /analytics | /products. Detail pages: /shipments/{id} | /customers/{id} | /suppliers/{id} | /invoices/{id} | /products/{id}',
         },
         entityType: {
           type: 'string',
-          description: 'Type of entity when navigating to a detail page (shipment, customer, supplier, invoice)',
+          description: 'Type of entity when navigating to a detail page (shipment, customer, supplier, invoice, product)',
         },
         entityId: {
           type: 'string',
@@ -521,20 +616,20 @@ const functionDeclarations: FunctionDeclaration[] = [
 // ── SEMANTIC SEARCH HANDLER ───────────────────────────────────────────────────
 async function executeSemanticSearch(args: any) {
   console.log('🔍 Semantic search:', args.query);
-  
+
   try {
     const filter: any = {};
     if (args.type && args.type !== 'all') {
       filter.type = args.type;
     }
-    
+
     const results = await semanticSearch(args.query, {
       topK: Math.min(args.topK || 5, 20),
       filter,
     });
-    
+
     console.log(`✅ Found ${results.length} semantic results`);
-    
+
     return {
       count: results.length,
       results: results.map(r => ({
@@ -542,13 +637,15 @@ async function executeSemanticSearch(args: any) {
         type: r.metadata.type,
         score: Math.round(r.score * 100) / 100,
         text: r.metadata.text,
-        ...(r.metadata.shipmentId && { shipmentId: r.metadata.shipmentId }),
-        ...(r.metadata.status && { status: r.metadata.status }),
+        ...(r.metadata.shipmentId   && { shipmentId: r.metadata.shipmentId }),
+        ...(r.metadata.status       && { status: r.metadata.status }),
         ...(r.metadata.customerName && { customerName: r.metadata.customerName }),
-        ...(r.metadata.origin && { origin: r.metadata.origin }),
-        ...(r.metadata.destination && { destination: r.metadata.destination }),
+        ...(r.metadata.origin       && { origin: r.metadata.origin }),
+        ...(r.metadata.destination  && { destination: r.metadata.destination }),
         ...(r.metadata.invoiceNumber && { invoiceNumber: r.metadata.invoiceNumber }),
-        ...(r.metadata.amount && { amount: r.metadata.amount }),
+        ...(r.metadata.amount       && { amount: r.metadata.amount }),
+        ...(r.metadata.name         && { name: r.metadata.name }),
+        ...(r.metadata.unitPrice    && { unitPrice: r.metadata.unitPrice }),
       })),
     };
   } catch (error: any) {
@@ -560,11 +657,11 @@ async function executeSemanticSearch(args: any) {
 // ── AGGREGATION HANDLER ───────────────────────────────────────────────────────
 async function executeAggregateData(args: any, companyName: string, companyId: string) {
   console.log('📊 Aggregating:', args.operation, 'on', args.collection);
-  
+
   try {
     let Model: any;
     const baseFilter: Record<string, any> = {};
-    
+
     switch (args.collection) {
       case 'shipments':
         Model = Shipment;
@@ -582,35 +679,39 @@ async function executeAggregateData(args: any, companyName: string, companyId: s
         Model = Invoice;
         baseFilter.companyName = companyName;
         break;
+      case 'products':
+        Model = Product;
+        baseFilter.companyName = companyName;
+        break;
       default:
         return { error: 'Unknown collection' };
     }
-    
+
     const filter = { ...baseFilter, ...(args.filter || {}) };
-    
+
     switch (args.operation) {
       case 'count':
         const count = await Model.countDocuments(filter);
         console.log(`✅ Count: ${count}`);
         return { count };
-        
+
       case 'sum':
         if (!args.field) return { error: 'Field required for sum' };
         const sumData = await Model.find(filter).lean();
         const total = sumData.reduce((acc: number, doc: any) => {
-          const value = args.field.includes('.') 
+          const value = args.field.includes('.')
             ? args.field.split('.').reduce((obj: any, key: string) => obj?.[key], doc)
             : doc[args.field];
           return acc + (parseFloat(value) || 0);
         }, 0);
         console.log(`✅ Sum of ${args.field}: ${total}`);
         return { sum: total, field: args.field, count: sumData.length };
-        
+
       case 'average':
         if (!args.field) return { error: 'Field required for average' };
         const avgData = await Model.find(filter).lean();
         const sum = avgData.reduce((acc: number, doc: any) => {
-          const value = args.field.includes('.') 
+          const value = args.field.includes('.')
             ? args.field.split('.').reduce((obj: any, key: string) => obj?.[key], doc)
             : doc[args.field];
           return acc + (parseFloat(value) || 0);
@@ -618,36 +719,36 @@ async function executeAggregateData(args: any, companyName: string, companyId: s
         const avg = avgData.length > 0 ? sum / avgData.length : 0;
         console.log(`✅ Average of ${args.field}: ${avg}`);
         return { average: avg, field: args.field, count: avgData.length };
-        
+
       case 'max':
         if (!args.field) return { error: 'Field required for max' };
         const maxData = await Model.find(filter).lean();
         const maxValue = Math.max(...maxData.map((doc: any) => {
-          const value = args.field.includes('.') 
+          const value = args.field.includes('.')
             ? args.field.split('.').reduce((obj: any, key: string) => obj?.[key], doc)
             : doc[args.field];
           return parseFloat(value) || 0;
         }));
         console.log(`✅ Max ${args.field}: ${maxValue}`);
         return { max: maxValue, field: args.field };
-        
+
       case 'min':
         if (!args.field) return { error: 'Field required for min' };
         const minData = await Model.find(filter).lean();
         const minValue = Math.min(...minData.map((doc: any) => {
-          const value = args.field.includes('.') 
+          const value = args.field.includes('.')
             ? args.field.split('.').reduce((obj: any, key: string) => obj?.[key], doc)
             : doc[args.field];
           return parseFloat(value) || 0;
         }));
         console.log(`✅ Min ${args.field}: ${minValue}`);
         return { min: minValue, field: args.field };
-        
+
       case 'group_by':
         if (!args.groupBy) return { error: 'groupBy field required' };
         const groupData = await Model.find(filter).lean();
         const grouped: Record<string, any> = {};
-        
+
         groupData.forEach((doc: any) => {
           const key = doc[args.groupBy] || 'Unknown';
           if (!grouped[key]) {
@@ -656,49 +757,99 @@ async function executeAggregateData(args: any, companyName: string, companyId: s
           }
           grouped[key].count++;
           grouped[key].items.push(doc);
-          
+
           if (args.field) {
-            const value = args.field.includes('.') 
+            const value = args.field.includes('.')
               ? args.field.split('.').reduce((obj: any, key: string) => obj?.[key], doc)
               : doc[args.field];
             grouped[key].sum += parseFloat(value) || 0;
           }
         });
-        
+
         const groupedArray = Object.entries(grouped).map(([key, value]: [string, any]) => ({
           [args.groupBy]: key,
           count: value.count,
           ...(args.field && { total: value.sum }),
           ...(args.field && { average: value.sum / value.count }),
         })).sort((a, b) => b.count - a.count);
-        
+
         console.log(`✅ Grouped by ${args.groupBy}: ${groupedArray.length} groups`);
         return { groups: groupedArray, groupBy: args.groupBy };
-        
+
       default:
         return { error: 'Unknown operation' };
     }
-    
+
   } catch (error: any) {
     console.error('❌ Aggregation failed:', error);
     return { error: error.message };
   }
 }
 
-// ── QUERY HANDLERS (TYPESCRIPT FIXED) ─────────────────────────────────────────
+// ── PRODUCTS QUERY HANDLER ────────────────────────────────────────────────────
+async function executeQueryProducts(args: any, companyName: string) {
+  const filter: Record<string, any> = { companyName };
+
+  if (args.name)        filter.name        = new RegExp(String(args.name), 'i');
+  if (args.description) filter.description = new RegExp(String(args.description), 'i');
+  if (args.hsCode)      filter.hsCode      = new RegExp(String(args.hsCode), 'i');
+  if (args.supplierId)  filter.supplierId  = String(args.supplierId);
+
+  if (args.minPrice !== undefined || args.maxPrice !== undefined) {
+    filter.unitPrice = {};
+    if (args.minPrice !== undefined) filter.unitPrice.$gte = Number(args.minPrice);
+    if (args.maxPrice !== undefined) filter.unitPrice.$lte = Number(args.maxPrice);
+  }
+
+  if (args.minDuty !== undefined || args.maxDuty !== undefined) {
+    filter.dutyPercentage = {};
+    if (args.minDuty !== undefined) filter.dutyPercentage.$gte = Number(args.minDuty);
+    if (args.maxDuty !== undefined) filter.dutyPercentage.$lte = Number(args.maxDuty);
+  }
+
+  const limit     = Math.min(args.limit ?? 10, 50);
+  const sortField = args.sortBy ?? 'createdAt';
+  const sortDir   = args.sortOrder === 'asc' ? 1 : -1;
+
+  console.log('🔍 Query Products:', JSON.stringify(filter, null, 2));
+
+  const products = await Product.find(filter as any)
+    .sort({ [sortField]: sortDir })
+    .limit(limit)
+    .lean();
+
+  console.log(`✅ Found ${products.length} products`);
+
+  return {
+    count: products.length,
+    products: products.map((p: any) => ({
+      _id:           p._id.toString(),
+      name:          p.name,
+      description:   p.description,
+      hsCode:        p.hsCode,
+      unitPrice:     p.unitPrice,
+      dutyPercentage: p.dutyPercentage,
+      supplierId:    p.supplierId,
+      imageUrl:      p.imageUrl,
+      companyName:   p.companyName,
+      createdAt:     p.createdAt,
+    })),
+  };
+}
+
+// ── QUERY HANDLERS ─────────────────────────────────────────────────────────────
 async function executeQueryShipments(args: any, companyName: string) {
   const filter: Record<string, any> = { companyName };
 
-  if (args.shipmentId)     filter.shipmentId = new RegExp(String(args.shipmentId), 'i');
-  if (args.customerName)   filter.customerName = new RegExp(String(args.customerName), 'i');
-  if (args.supplierName)   filter.supplierName = new RegExp(String(args.supplierName), 'i');
+  if (args.shipmentId)     filter.shipmentId     = new RegExp(String(args.shipmentId), 'i');
+  if (args.customerName)   filter.customerName   = new RegExp(String(args.customerName), 'i');
+  if (args.supplierName)   filter.supplierName   = new RegExp(String(args.supplierName), 'i');
   if (args.trackingNumber) filter.trackingNumber = new RegExp(String(args.trackingNumber), 'i');
-  if (args.origin)         filter.origin = new RegExp(String(args.origin), 'i');
-  if (args.destination)    filter.destination = new RegExp(String(args.destination), 'i');
-  if (args.carrier)        filter.carrier = new RegExp(String(args.carrier), 'i');
-  if (args.status)         filter.status = String(args.status);
+  if (args.origin)         filter.origin         = new RegExp(String(args.origin), 'i');
+  if (args.destination)    filter.destination    = new RegExp(String(args.destination), 'i');
+  if (args.carrier)        filter.carrier        = new RegExp(String(args.carrier), 'i');
+  if (args.status)         filter.status         = String(args.status);
 
-  // Cost filtering — use costBreakdown.totalLandedCostEGP (always populated, all currencies unified in EGP)
   if (args.minCost || args.maxCost) {
     filter['costBreakdown.totalLandedCostEGP'] = {};
     if (args.minCost) filter['costBreakdown.totalLandedCostEGP'].$gte = Number(args.minCost);
@@ -728,7 +879,7 @@ async function executeQueryShipments(args: any, companyName: string) {
     if (args.estimatedArrivalFrom) filter.estimatedArrival.$gte = new Date(args.estimatedArrivalFrom);
     if (args.estimatedArrivalTo)   filter.estimatedArrival.$lte = new Date(args.estimatedArrivalTo);
   }
-  
+
   if (args.createdFrom || args.createdTo) {
     filter.createdAt = {};
     if (args.createdFrom) filter.createdAt.$gte = new Date(args.createdFrom);
@@ -744,15 +895,6 @@ async function executeQueryShipments(args: any, companyName: string) {
   const shipments = await Shipment.find(filter as any).sort({ [sortField]: sortDir }).limit(limit).lean();
 
   console.log(`✅ Found ${shipments.length} shipments`);
-  if (shipments.length > 0) {
-    console.log('💰 Cost fields sample:', shipments.slice(0, 3).map((s: any) => ({
-      id: s.shipmentId,
-      totalCost: s.totalCost,
-      customerPayment: s.customerPayment,
-      totalLandedCost: s.costBreakdown?.totalLandedCost,
-      currency: s.currency,
-    })));
-  }
 
   return {
     count: shipments.length,
@@ -773,8 +915,8 @@ async function executeQueryShipments(args: any, companyName: string) {
 
 async function executeQueryCustomers(args: any, companyName: string) {
   const filter: Record<string, any> = { companyName };
-  if (args.name)    filter.name = new RegExp(args.name, 'i');
-  if (args.email)   filter.email = new RegExp(args.email, 'i');
+  if (args.name)    filter.name    = new RegExp(args.name, 'i');
+  if (args.email)   filter.email   = new RegExp(args.email, 'i');
   if (args.country) filter.country = new RegExp(args.country, 'i');
 
   const customers = await Customer.find(filter as any).limit(args.limit ?? 10).lean();
@@ -789,10 +931,10 @@ async function executeQueryCustomers(args: any, companyName: string) {
 
 async function executeQuerySuppliers(args: any, companyId: string) {
   const filter: Record<string, any> = { companyId };
-  if (args.name)          filter.name = new RegExp(args.name, 'i');
+  if (args.name)          filter.name          = new RegExp(args.name, 'i');
   if (args.contactPerson) filter.contactPerson = new RegExp(args.contactPerson, 'i');
-  if (args.country)       filter.country = new RegExp(args.country, 'i');
-  if (args.paymentTerms)  filter.paymentTerms = args.paymentTerms;
+  if (args.country)       filter.country       = new RegExp(args.country, 'i');
+  if (args.paymentTerms)  filter.paymentTerms  = args.paymentTerms;
   if (args.isActive !== undefined) filter.isActive = args.isActive;
 
   const suppliers = await Supplier.find(filter as any).limit(args.limit ?? 10).lean();
@@ -809,15 +951,15 @@ async function executeQuerySuppliers(args: any, companyId: string) {
 async function executeQueryInvoices(args: any, companyName: string) {
   const filter: Record<string, any> = { companyName };
   if (args.invoiceNumber) filter.invoiceNumber = new RegExp(args.invoiceNumber, 'i');
-  if (args.customerName)  filter.customerName = new RegExp(args.customerName, 'i');
-  if (args.status)        filter.status = args.status;
-  
+  if (args.customerName)  filter.customerName  = new RegExp(args.customerName, 'i');
+  if (args.status)        filter.status        = args.status;
+
   if (args.minAmount || args.maxAmount) {
     filter.totalAmount = {};
     if (args.minAmount) filter.totalAmount.$gte = args.minAmount;
     if (args.maxAmount) filter.totalAmount.$lte = args.maxAmount;
   }
-  
+
   if (args.dueDateFrom || args.dueDateTo) {
     filter.dueDate = {};
     if (args.dueDateFrom) filter.dueDate.$gte = new Date(args.dueDateFrom);
@@ -845,7 +987,6 @@ async function executeDbOperation(args: any, companyName: string, companyId: str
   const { operation } = args;
   console.log('✏️ DB operation:', operation, args);
 
-  // ── update_shipment ────────────────────────────────────────────────────────
   if (operation === 'update_shipment') {
     if (!args.shipmentId) return { error: 'shipmentId is required for update_shipment' };
     if (!args.updates || Object.keys(args.updates).length === 0) return { error: 'No updates provided' };
@@ -856,7 +997,6 @@ async function executeDbOperation(args: any, companyName: string, companyId: str
     });
     if (!shipment) return { error: `Shipment ${args.shipmentId} not found` };
 
-    // Append to statusHistory if status is changing
     if (args.updates.status && args.updates.status !== shipment.status) {
       shipment.statusHistory = shipment.statusHistory || [];
       shipment.statusHistory.push({
@@ -879,7 +1019,6 @@ async function executeDbOperation(args: any, companyName: string, companyId: str
     };
   }
 
-  // ── generate_invoice ───────────────────────────────────────────────────────
   if (operation === 'generate_invoice') {
     if (!args.shipmentId) return { error: 'shipmentId is required for generate_invoice' };
 
@@ -889,7 +1028,6 @@ async function executeDbOperation(args: any, companyName: string, companyId: str
     }).lean() as any;
     if (!shipment) return { error: `Shipment ${args.shipmentId} not found` };
 
-    // Check if invoice already exists
     const existing = await Invoice.findOne({ shipmentId: shipment._id, companyName });
     if (existing) {
       return {
@@ -946,7 +1084,6 @@ async function executeDbOperation(args: any, companyName: string, companyId: str
     };
   }
 
-  // ── delete_overdue_shipments ───────────────────────────────────────────────
   if (operation === 'delete_overdue_shipments') {
     const days = args.olderThanDays ?? 30;
     const cutoff = new Date();
@@ -958,7 +1095,6 @@ async function executeDbOperation(args: any, companyName: string, companyId: str
     };
     if (args.statusFilter) filter.status = args.statusFilter;
 
-    // Safety: count first (dry-run already done by AI via aggregate_data, but double-check)
     const count = await Shipment.countDocuments(filter);
     if (count === 0) {
       return { success: true, deleted: 0, message: 'No matching shipments found to delete' };
@@ -974,22 +1110,19 @@ async function executeDbOperation(args: any, companyName: string, companyId: str
     };
   }
 
-  // ── bulk_update_shipments ──────────────────────────────────────────────────
   if (operation === 'bulk_update_shipments') {
     if (!args.updates || Object.keys(args.updates).length === 0) {
       return { error: 'No updates provided for bulk_update_shipments' };
     }
 
     const filter: Record<string, any> = { companyName };
-
-    // At least one filter is required — safety rule
     let hasFilter = false;
 
-    if (args.status)                  { filter.status = args.status; hasFilter = true; }
-    if (args.origin)                  { filter.origin = new RegExp(String(args.origin), 'i'); hasFilter = true; }
-    if (args.destination)             { filter.destination = new RegExp(String(args.destination), 'i'); hasFilter = true; }
-    if (args.carrier)                 { filter.carrier = new RegExp(String(args.carrier), 'i'); hasFilter = true; }
-    if (args.customerName)            { filter.customerName = new RegExp(String(args.customerName), 'i'); hasFilter = true; }
+    if (args.status)      { filter.status      = args.status;                                    hasFilter = true; }
+    if (args.origin)      { filter.origin      = new RegExp(String(args.origin), 'i');           hasFilter = true; }
+    if (args.destination) { filter.destination = new RegExp(String(args.destination), 'i');      hasFilter = true; }
+    if (args.carrier)     { filter.carrier     = new RegExp(String(args.carrier), 'i');          hasFilter = true; }
+    if (args.customerName){ filter.customerName= new RegExp(String(args.customerName), 'i');     hasFilter = true; }
 
     if (args.estimatedArrivalFrom || args.estimatedArrivalTo) {
       filter.estimatedArrival = {};
@@ -999,8 +1132,6 @@ async function executeDbOperation(args: any, companyName: string, companyId: str
     }
 
     if (args.estimatedArrivalNotFrom || args.estimatedArrivalNotTo) {
-      // "NOT in 2027" → estimatedArrival < 2027-01-01 OR estimatedArrival > 2027-12-31
-      // Expressed as: NOT ($gte notFrom AND $lte notTo) → use $not with $gte/$lte
       filter.estimatedArrival = {
         $not: {
           $gte: new Date(args.estimatedArrivalNotFrom || '2027-01-01'),
@@ -1021,25 +1152,18 @@ async function executeDbOperation(args: any, companyName: string, companyId: str
       return { error: 'bulk_update_shipments requires at least one filter. Refusing to update all shipments blindly.' };
     }
 
-    // Dry-run: count affected records first
     const count = await Shipment.countDocuments(filter);
     if (count === 0) {
       return { success: true, updated: 0, message: 'No shipments matched the filter — nothing updated.' };
     }
 
-    // Build the $set payload
     const setPayload: Record<string, any> = { ...args.updates };
-
-    // If status is being set, we can't push statusHistory in a bulk op via updateMany,
-    // so we handle it as a two-step: updateMany for the fields, then bulkWrite for history
     const newStatus = args.updates.status;
-
     const result = await Shipment.updateMany(filter, { $set: setPayload });
 
-    // Append statusHistory entries if status changed
     if (newStatus && userId) {
       await Shipment.updateMany(
-        { ...filter, ...setPayload },   // re-filter on already-updated docs
+        { ...filter, ...setPayload },
         {
           $push: {
             statusHistory: {
@@ -1063,13 +1187,11 @@ async function executeDbOperation(args: any, companyName: string, companyId: str
     };
   }
 
-  // ── create_shipment ────────────────────────────────────────────────────────
   if (operation === 'create_shipment') {
     if (!args.origin || !args.destination) {
       return { error: 'origin and destination are required to create a shipment' };
     }
 
-    // Verify customer exists if provided
     if (args.customerName) {
       const customer = await Customer.findOne({
         companyName,
@@ -1082,7 +1204,6 @@ async function executeDbOperation(args: any, companyName: string, companyId: str
       }
     }
 
-    // Verify supplier exists if provided
     if (args.supplierName) {
       const supplier = await Supplier.findOne({
         companyId,
@@ -1095,7 +1216,6 @@ async function executeDbOperation(args: any, companyName: string, companyId: str
       }
     }
 
-    // Generate unique shipment ID
     const count = await Shipment.countDocuments({ companyName });
     const shipmentId = `SHP-${String(count + 1).padStart(4, '0')}`;
 
@@ -1172,12 +1292,13 @@ export async function POST(request: NextRequest) {
       { role: 'user', parts: [{ text: message }] },
     ];
 
-    let finalText        = '';
+    let finalText           = '';
     let navigateTo: string | null = null;
     let allShipments:  any[] = [];
     let allCustomers:  any[] = [];
     let allSuppliers:  any[] = [];
     let allInvoices:   any[] = [];
+    let allProducts:   any[] = [];           // ← NEW
     let semanticResults: any[] = [];
     let dbOperationResults: any[] = [];
 
@@ -1216,6 +1337,9 @@ export async function POST(request: NextRequest) {
             if (result.results?.length) semanticResults.push(...result.results);
           } else if (name === 'aggregate_data') {
             result = await executeAggregateData(args, companyName, companyId);
+          } else if (name === 'query_products') {                          // ← NEW
+            result = await executeQueryProducts(args, companyName);
+            if (result.products?.length) allProducts.push(...result.products);
           } else if (name === 'query_shipments') {
             result = await executeQueryShipments(args, companyName);
             if (result.shipments?.length) allShipments.push(...result.shipments);
@@ -1231,13 +1355,12 @@ export async function POST(request: NextRequest) {
           } else if (name === 'navigate') {
             let route = (args?.route as string) ?? null;
             const entityType = args?.entityType as string;
-            const entityId = args?.entityId as string;
-            
-            // Build dynamic route if entity info provided
+            const entityId   = args?.entityId   as string;
+
             if (entityType && entityId) {
               route = `/${entityType}s/${entityId}`;
             }
-            
+
             navigateTo = route;
             result = { success: true, route: navigateTo };
           } else if (name === 'execute_db_operation') {
@@ -1259,14 +1382,18 @@ export async function POST(request: NextRequest) {
       contents.push({ role: 'user', parts: functionResponses });
     }
 
-    // Determine action — prefer 'db_operation' if writes occurred, otherwise
-    // use 'data' when ANY entity type was fetched (not just the first one found)
-    const hasData = allShipments.length || allCustomers.length || allSuppliers.length || allInvoices.length;
+    const hasData =
+      allShipments.length ||
+      allCustomers.length ||
+      allSuppliers.length ||
+      allInvoices.length  ||
+      allProducts.length;                    // ← NEW
+
     let action = 'answer';
-    if (navigateTo)                  action = 'navigate';
+    if (navigateTo)                    action = 'navigate';
     else if (dbOperationResults.length) action = 'db_operation';
-    else if (hasData)                action = 'fetch_data';
-    else if (semanticResults.length) action = 'semantic_results';
+    else if (hasData)                  action = 'fetch_data';
+    else if (semanticResults.length)   action = 'semantic_results';
 
     return NextResponse.json({
       action,
@@ -1276,7 +1403,8 @@ export async function POST(request: NextRequest) {
       customers: allCustomers.length ? allCustomers : undefined,
       suppliers: allSuppliers.length ? allSuppliers : undefined,
       invoices:  allInvoices.length  ? allInvoices  : undefined,
-      semanticResults: semanticResults.length ? semanticResults : undefined,
+      products:  allProducts.length  ? allProducts  : undefined,   // ← NEW
+      semanticResults:    semanticResults.length    ? semanticResults    : undefined,
       dbOperationResults: dbOperationResults.length ? dbOperationResults : undefined,
       confidence: 1.0,
     });

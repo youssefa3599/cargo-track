@@ -93,7 +93,7 @@ interface Message {
   id: string;
   role: 'user' | 'assistant';
   text: string;
-  action?: 'navigate' | 'fetch_shipment' | 'fetch_customer' | 'fetch_supplier' | 'fetch_invoice' | 'answer' | 'semantic_results' | 'unknown';
+  action?: 'navigate' | 'fetch_data' | 'fetch_shipment' | 'fetch_customer' | 'fetch_supplier' | 'fetch_invoice' | 'db_operation' | 'answer' | 'semantic_results' | 'unknown';
   route?: string | null;
   shipments?: ShipmentResult[];
   customers?: CustomerResult[];
@@ -103,16 +103,18 @@ interface Message {
 }
 
 interface AICommandResponse {
-  action: 'navigate' | 'fetch_shipment' | 'fetch_customer' | 'fetch_supplier' | 'fetch_invoice' | 'answer' | 'semantic_results' | 'unknown';
+  action: 'navigate' | 'fetch_data' | 'fetch_shipment' | 'fetch_customer' | 'fetch_supplier' | 'fetch_invoice' | 'db_operation' | 'answer' | 'semantic_results' | 'unknown';
   route: string | null;
   message: string;
   confidence: number;
-  // Data returned directly by the backend (no re-fetching needed)
+  dataSummary?: string;       // structured entity context for history (_ids included)
   shipments?: ShipmentResult[];
   customers?: CustomerResult[];
   suppliers?: SupplierResult[];
   invoices?: InvoiceResult[];
+  products?: any[];
   semanticResults?: any[];
+  dbOperationResults?: any[];
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -667,52 +669,84 @@ export default function AIAssistant() {
         credentials: 'include',
         body:        JSON.stringify({
           message: text,
+          // Send last 8 assistant messages as history.
+          // Critically, include the dataSummary from each message so the AI
+          // has entity _ids available for follow-up pronoun resolution
+          // (e.g. "show me his details" → navigate(/customers/<id>)).
           history: messages
-            .filter(m => m.role === 'assistant' && m.action === 'answer')
-            .slice(-6)
-            .map(m => ({ role: m.role, text: m.text })),
+            .filter(m => m.role === 'assistant' && m.action !== 'unknown')
+            .slice(-8)
+            .map(m => {
+              const parts: string[] = [m.text];
+              // Append structured entity context with _ids so follow-ups work
+              if (m.customers?.length)
+                parts.push(`[Customers shown: ${m.customers.map(c => `${c.name} (id:${c._id})`).join(', ')}]`);
+              if (m.shipments?.length)
+                parts.push(`[Shipments shown: ${m.shipments.map(s => `${s.shipmentId} (id:${s._id}, status:${s.status})`).join(', ')}]`);
+              if (m.suppliers?.length)
+                parts.push(`[Suppliers shown: ${m.suppliers.map(s => `${s.name} (id:${s._id})`).join(', ')}]`);
+              if (m.invoices?.length)
+                parts.push(`[Invoices shown: ${m.invoices.map(i => `${i.invoiceNumber} (id:${i.id}, status:${i.status})`).join(', ')}]`);
+              return { role: m.role, text: parts.join('\n') };
+            }),
         }),
       });
-      const data: AICommandResponse = await res.json();
 
-      if (data.action === 'fetch_shipment') {
-        const shipments = data.shipments ?? [];
-        if (shipments.length === 0) {
-          addAssistantMessage("I couldn't find any shipments matching that. Try a different ID, tracking number, or customer name.", 'fetch_shipment');
-        } else {
-          addAssistantMessage(`Found ${shipments.length} shipment${shipments.length > 1 ? 's' : ''} 📦`, 'fetch_shipment', null, { shipments });
-        }
+      // Support both the new unified AICommandResponse shape and the old
+      // legacy action names (fetch_shipment, fetch_customer, etc.) so this
+      // component works regardless of which backend version is deployed.
+      const data: AICommandResponse & { dataSummary?: string; products?: any[] } = await res.json();
 
-      } else if (data.action === 'fetch_customer') {
-        const customers = data.customers ?? [];
-        if (customers.length === 0) {
-          addAssistantMessage("I couldn't find any customers matching that. Try a different name.", 'fetch_customer');
-        } else {
-          addAssistantMessage(`Found ${customers.length} customer${customers.length > 1 ? 's' : ''} 👤`, 'fetch_customer', null, { customers });
-        }
+      const hasShipments = (data.shipments?.length ?? 0) > 0;
+      const hasCustomers = (data.customers?.length ?? 0) > 0;
+      const hasSuppliers = (data.suppliers?.length ?? 0) > 0;
+      const hasInvoices  = (data.invoices?.length  ?? 0) > 0;
+      const hasAnyData   = hasShipments || hasCustomers || hasSuppliers || hasInvoices;
 
-      } else if (data.action === 'fetch_supplier') {
-        const suppliers = data.suppliers ?? [];
-        if (suppliers.length === 0) {
-          addAssistantMessage("I couldn't find any suppliers matching that. Try a different name.", 'fetch_supplier');
-        } else {
-          addAssistantMessage(`Found ${suppliers.length} supplier${suppliers.length > 1 ? 's' : ''} 🏭`, 'fetch_supplier', null, { suppliers });
-        }
+      if (data.action === 'navigate' && data.route) {
+        addAssistantMessage(data.message, 'navigate', data.route);
+        setNavigatingTo(data.route);
+        setTimeout(() => { router.push(data.route!); setNavigatingTo(null); }, 800);
 
-      } else if (data.action === 'fetch_invoice') {
-        const invoices = data.invoices ?? [];
-        if (invoices.length === 0) {
-          addAssistantMessage("I couldn't find any invoices matching that. Try an invoice number, customer name, or status like 'unpaid'.", 'fetch_invoice');
-        } else {
-          addAssistantMessage(`Found ${invoices.length} invoice${invoices.length > 1 ? 's' : ''} 🧾`, 'fetch_invoice', null, { invoices });
-        }
+      } else if (data.action === 'db_operation') {
+        addAssistantMessage(data.message || 'Operation completed.', 'db_operation', null, {
+          shipments: data.shipments,
+          customers: data.customers,
+          suppliers: data.suppliers,
+          invoices:  data.invoices,
+        });
+
+      } else if (
+        hasAnyData ||
+        data.action === 'fetch_data' ||
+        data.action === 'fetch_shipment' ||
+        data.action === 'fetch_customer' ||
+        data.action === 'fetch_supplier' ||
+        data.action === 'fetch_invoice'
+      ) {
+        // One or more entity types returned — show them all together
+        const label = data.message && data.message.trim() && data.message.trim() !== 'Done.'
+          ? data.message
+          : [
+              hasCustomers ? `${data.customers!.length} customer${data.customers!.length > 1 ? 's' : ''} 👤` : '',
+              hasShipments ? `${data.shipments!.length} shipment${data.shipments!.length > 1 ? 's' : ''} 📦` : '',
+              hasSuppliers ? `${data.suppliers!.length} supplier${data.suppliers!.length > 1 ? 's' : ''} 🏭` : '',
+              hasInvoices  ? `${data.invoices!.length} invoice${data.invoices!.length > 1 ? 's' : ''} 🧾` : '',
+            ].filter(Boolean).join(', ') || 'Found results';
+
+        addAssistantMessage(label, 'fetch_data', null, {
+          shipments: data.shipments,
+          customers: data.customers,
+          suppliers: data.suppliers,
+          invoices:  data.invoices,
+        });
 
       } else {
-        addAssistantMessage(data.message, data.action, data.route);
-        if (data.action === 'navigate' && data.route) {
-          setNavigatingTo(data.route);
-          setTimeout(() => { router.push(data.route!); setNavigatingTo(null); }, 800);
-        }
+        // Plain answer, analytics summary, zero-results explanation, etc.
+        const msg = data.message && data.message.trim() && data.message.trim() !== 'Done.'
+          ? data.message
+          : "I couldn't find any results. Try rephrasing your query.";
+        addAssistantMessage(msg, data.action ?? 'answer', data.route);
       }
     } catch {
       addAssistantMessage("Couldn't connect to CargoAI. Please check your connection.", 'unknown');
