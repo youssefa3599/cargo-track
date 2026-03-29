@@ -75,8 +75,16 @@ SUPPLIERS collection:
 
 INVOICES collection:
   invoiceNumber, customerName, customerEmail
-  status — "unpaid" | "paid" | "overdue" | "cancelled"
-  totalAmount, totalAmountEGP, currency, issueDate, dueDate
+  status          — "unpaid" | "paid" | "overdue" | "cancelled"
+  totalAmount     — raw amount in the invoice's original currency (DO NOT filter on this)
+  totalAmountEGP  — ALL invoice amounts unified in EGP — this is the ONLY field used for amount filtering
+  currency        — "USD" | "EGP" | "EUR" | "GBP"
+                    NOTE: All amount filtering uses totalAmountEGP.
+                    Convert before filtering: 1 USD ≈ 50 EGP, 1 EUR ≈ 55 EGP, 1 GBP ≈ 63 EGP.
+                    "invoices over $7,000" → minAmount: 350000 (7000 × 50)
+                    "invoices over 10,000 EGP" → minAmount: 10000
+                    Always tell the user the EGP threshold used.
+  issueDate, dueDate
 
 ═══════════════════════════════════════════
 TOOL SELECTION — HOW TO DECIDE
@@ -293,7 +301,7 @@ Q: "how many unpaid invoices"
 → aggregate_data(collection: "invoices", operation: "count", filter: {status: "unpaid"})
 
 Q: "total unpaid invoice amount"
-→ aggregate_data(collection: "invoices", operation: "sum", field: "totalAmount", filter: {status: "unpaid"})
+→ aggregate_data(collection: "invoices", operation: "sum", field: "totalAmountEGP", filter: {status: "unpaid"})
 
 Q: "how many products do we have"
 → aggregate_data(collection: "products", operation: "count")
@@ -324,8 +332,20 @@ Q: "unpaid invoices" / "overdue invoices"
 Q: "invoices for Ahmed" / "find invoice INV-001"
 → query_invoices(customerName: "Ahmed") or query_invoices(invoiceNumber: "INV-001")
 
-Q: "invoices over $5000"
-→ query_invoices(minAmount: 5000)
+Q: "invoices over $5000" / "invoices more than 5000 USD"
+→ query_invoices(minAmount: 250000)  ← 5000 × 50 = 250,000 EGP
+
+Q: "invoices over $7000" / "invoices more than 7000 USD"
+→ query_invoices(minAmount: 350000)  ← 7000 × 50 = 350,000 EGP
+
+Q: "invoices over 10000 EGP"
+→ query_invoices(minAmount: 10000)
+
+Q: "invoices under $500"
+→ query_invoices(maxAmount: 25000)  ← 500 × 50 = 25,000 EGP
+
+Q: "invoices between $1000 and $5000"
+→ query_invoices(minAmount: 50000, maxAmount: 250000)
 
 ═══════════════════════════════════════════
 FALLBACK STRATEGY — CRITICAL
@@ -412,6 +432,7 @@ CRITICAL RULES
 10. Be conversational — summarize results naturally, don't just dump raw data
 11. For write operations: ALWAYS read-before-write, NEVER delete/update without a filter
 12. "products" queries MUST use query_products — NEVER map product queries to shipments
+13. Invoice amount filtering ALWAYS uses totalAmountEGP — NEVER totalAmount. Convert currency first.
 
 Today's date: ${new Date().toISOString().split('T')[0]}
 `;
@@ -438,10 +459,10 @@ const functionDeclarations: FunctionDeclaration[] = [
       type: 'object',
       properties: {
         collection: { type: 'string', description: 'shipments | customers | suppliers | invoices | products' },
-        operation: { type: 'string', description: 'count | sum | average | max | min | group_by' },
-        field: { type: 'string', description: 'Field to aggregate (totalCost, companyProfit, customerPayment, profitMargin, unitPrice, dutyPercentage, etc.)' },
-        groupBy: { type: 'string', description: 'Field to group by (customerName, status, supplierName, dutyPercentage, etc.)' },
-        filter: { type: 'object', description: 'Optional filters (e.g., {status: "pending"})' },
+        operation:  { type: 'string', description: 'count | sum | average | max | min | group_by' },
+        field:      { type: 'string', description: 'Field to aggregate (totalCost, companyProfit, customerPayment, profitMargin, unitPrice, dutyPercentage, totalAmountEGP, etc.)' },
+        groupBy:    { type: 'string', description: 'Field to group by (customerName, status, supplierName, dutyPercentage, etc.)' },
+        filter:     { type: 'object', description: 'Optional filters (e.g., {status: "pending"})' },
       },
       required: ['collection', 'operation'],
     },
@@ -472,29 +493,29 @@ const functionDeclarations: FunctionDeclaration[] = [
     parametersJsonSchema: {
       type: 'object',
       properties: {
-        shipmentId:       { type: 'string', description: 'Shipment ID partial match' },
-        customerName:     { type: 'string', description: 'Customer name partial match' },
-        supplierName:     { type: 'string', description: 'Supplier name partial match' },
-        trackingNumber:   { type: 'string', description: 'Tracking number' },
-        origin:           { type: 'string', description: 'Origin country/city partial match' },
-        destination:      { type: 'string', description: 'Destination country/city partial match' },
-        carrier:          { type: 'string', description: 'Carrier name' },
-        status:           { type: 'string', description: 'pending | in-transit | customs | delivered | cancelled' },
-        minCost:          { type: 'number', description: 'Minimum cost' },
-        maxCost:          { type: 'number', description: 'Maximum cost' },
-        minProfit:        { type: 'number', description: 'Minimum profit' },
-        maxProfit:        { type: 'number', description: 'Maximum profit' },
-        minPayment:       { type: 'number', description: 'Minimum customer payment' },
-        maxPayment:       { type: 'number', description: 'Maximum customer payment' },
-        shippingDateFrom: { type: 'string', description: 'Shipping date from ISO string' },
-        shippingDateTo:   { type: 'string', description: 'Shipping date to ISO string' },
+        shipmentId:           { type: 'string', description: 'Shipment ID partial match' },
+        customerName:         { type: 'string', description: 'Customer name partial match' },
+        supplierName:         { type: 'string', description: 'Supplier name partial match' },
+        trackingNumber:       { type: 'string', description: 'Tracking number' },
+        origin:               { type: 'string', description: 'Origin country/city partial match' },
+        destination:          { type: 'string', description: 'Destination country/city partial match' },
+        carrier:              { type: 'string', description: 'Carrier name' },
+        status:               { type: 'string', description: 'pending | in-transit | customs | delivered | cancelled' },
+        minCost:              { type: 'number', description: 'Minimum cost in EGP (convert foreign currency first: 1 USD ≈ 50 EGP)' },
+        maxCost:              { type: 'number', description: 'Maximum cost in EGP' },
+        minProfit:            { type: 'number', description: 'Minimum profit' },
+        maxProfit:            { type: 'number', description: 'Maximum profit' },
+        minPayment:           { type: 'number', description: 'Minimum customer payment' },
+        maxPayment:           { type: 'number', description: 'Maximum customer payment' },
+        shippingDateFrom:     { type: 'string', description: 'Shipping date from ISO string' },
+        shippingDateTo:       { type: 'string', description: 'Shipping date to ISO string' },
         estimatedArrivalFrom: { type: 'string', description: 'Estimated arrival date from ISO string (e.g. "2027-01-01")' },
         estimatedArrivalTo:   { type: 'string', description: 'Estimated arrival date to ISO string (e.g. "2027-12-31")' },
-        createdFrom:      { type: 'string', description: 'Created date from ISO string' },
-        createdTo:        { type: 'string', description: 'Created date to ISO string' },
-        limit:            { type: 'number', description: 'Max results (default 10, max 50)' },
-        sortBy:           { type: 'string', description: 'Sort field: createdAt | shippingDate | companyProfit | customerPayment | totalCost' },
-        sortOrder:        { type: 'string', description: 'asc or desc (default desc)' },
+        createdFrom:          { type: 'string', description: 'Created date from ISO string' },
+        createdTo:            { type: 'string', description: 'Created date to ISO string' },
+        limit:                { type: 'number', description: 'Max results (default 10, max 50)' },
+        sortBy:               { type: 'string', description: 'Sort field: createdAt | shippingDate | companyProfit | customerPayment | totalCost' },
+        sortOrder:            { type: 'string', description: 'asc or desc (default desc)' },
       },
     },
   },
@@ -528,19 +549,19 @@ const functionDeclarations: FunctionDeclaration[] = [
   },
   {
     name: 'query_invoices',
-    description: 'Query invoices with exact filters.',
+    description: 'Query invoices with exact filters. Amount filtering always uses totalAmountEGP — convert currency before passing minAmount/maxAmount.',
     parametersJsonSchema: {
       type: 'object',
       properties: {
         invoiceNumber: { type: 'string', description: 'Invoice number partial match' },
         customerName:  { type: 'string', description: 'Customer name partial match' },
         status:        { type: 'string', description: 'unpaid | paid | overdue | cancelled' },
-        minAmount:     { type: 'number', description: 'Minimum total amount' },
-        maxAmount:     { type: 'number', description: 'Maximum total amount' },
+        minAmount:     { type: 'number', description: 'Minimum total amount in EGP (convert first: $7000 → 350000 EGP, €5000 → 275000 EGP)' },
+        maxAmount:     { type: 'number', description: 'Maximum total amount in EGP' },
         dueDateFrom:   { type: 'string', description: 'Due date from ISO string' },
         dueDateTo:     { type: 'string', description: 'Due date to ISO string' },
         limit:         { type: 'number', description: 'Max results (default 10)' },
-        sortBy:        { type: 'string', description: 'Sort field: dueDate | totalAmount | issueDate' },
+        sortBy:        { type: 'string', description: 'Sort field: dueDate | totalAmountEGP | issueDate' },
         sortOrder:     { type: 'string', description: 'asc or desc' },
       },
     },
@@ -577,36 +598,28 @@ const functionDeclarations: FunctionDeclaration[] = [
           type: 'string',
           description: 'update_shipment | bulk_update_shipments | generate_invoice | delete_overdue_shipments | create_shipment',
         },
-        // update_shipment
-        shipmentId: { type: 'string', description: 'Shipment ID (e.g. SHP-001) — required for update_shipment and generate_invoice' },
-        updates: {
-          type: 'object',
-          description: 'Fields to update on the shipment(s) (e.g. {status: "delivered", notes: "Arrived on time"})',
-        },
-        // bulk_update_shipments filters (at least one required)
+        shipmentId:              { type: 'string', description: 'Shipment ID (e.g. SHP-001) — required for update_shipment and generate_invoice' },
+        updates:                 { type: 'object', description: 'Fields to update on the shipment(s) (e.g. {status: "delivered", notes: "Arrived on time"})' },
         estimatedArrivalFrom:    { type: 'string', description: 'Filter: estimated arrival >= this ISO date' },
         estimatedArrivalTo:      { type: 'string', description: 'Filter: estimated arrival <= this ISO date' },
         estimatedArrivalNotFrom: { type: 'string', description: 'Exclude range start — e.g. "2027-01-01" to exclude shipments IN 2027' },
         estimatedArrivalNotTo:   { type: 'string', description: 'Exclude range end   — e.g. "2027-12-31" to exclude shipments IN 2027' },
-        shippingDateFrom: { type: 'string', description: 'Filter: shipping date >= this ISO date' },
-        shippingDateTo:   { type: 'string', description: 'Filter: shipping date <= this ISO date' },
-        // generate_invoice — uses shipmentId above
-        // delete_overdue_shipments
-        olderThanDays: { type: 'number', description: 'Delete shipments older than this many days (default 30)' },
-        statusFilter: { type: 'string', description: 'Only delete shipments with this status (e.g. "pending", "cancelled")' },
-        // create_shipment
-        customerName:     { type: 'string',  description: 'Customer name for new shipment' },
-        supplierName:     { type: 'string',  description: 'Supplier name for new shipment' },
-        origin:           { type: 'string',  description: 'Origin country/city' },
-        destination:      { type: 'string',  description: 'Destination country/city' },
-        carrier:          { type: 'string',  description: 'Carrier: FedEx | UPS | DHL | USPS | Maersk | Other' },
-        shippingDate:     { type: 'string',  description: 'ISO date string for shipping date' },
-        estimatedArrival: { type: 'string',  description: 'ISO date string for estimated arrival' },
-        weight:           { type: 'number',  description: 'Weight in kg' },
-        currency:         { type: 'string',  description: 'USD | EGP | EUR | GBP' },
-        totalCost:        { type: 'number',  description: 'Total cost in the given currency' },
-        customerPayment:  { type: 'number',  description: 'Customer payment amount' },
-        notes:            { type: 'string',  description: 'Optional notes' },
+        shippingDateFrom:        { type: 'string', description: 'Filter: shipping date >= this ISO date' },
+        shippingDateTo:          { type: 'string', description: 'Filter: shipping date <= this ISO date' },
+        olderThanDays:           { type: 'number', description: 'Delete shipments older than this many days (default 30)' },
+        statusFilter:            { type: 'string', description: 'Only delete shipments with this status (e.g. "pending", "cancelled")' },
+        customerName:            { type: 'string', description: 'Customer name for new shipment' },
+        supplierName:            { type: 'string', description: 'Supplier name for new shipment' },
+        origin:                  { type: 'string', description: 'Origin country/city' },
+        destination:             { type: 'string', description: 'Destination country/city' },
+        carrier:                 { type: 'string', description: 'Carrier: FedEx | UPS | DHL | USPS | Maersk | Other' },
+        shippingDate:            { type: 'string', description: 'ISO date string for shipping date' },
+        estimatedArrival:        { type: 'string', description: 'ISO date string for estimated arrival' },
+        weight:                  { type: 'number', description: 'Weight in kg' },
+        currency:                { type: 'string', description: 'USD | EGP | EUR | GBP' },
+        totalCost:               { type: 'number', description: 'Total cost in the given currency' },
+        customerPayment:         { type: 'number', description: 'Customer payment amount' },
+        notes:                   { type: 'string', description: 'Optional notes' },
       },
       required: ['operation'],
     },
@@ -633,19 +646,19 @@ async function executeSemanticSearch(args: any) {
     return {
       count: results.length,
       results: results.map(r => ({
-        id: r.metadata.id,
+        id:   r.metadata.id,
         type: r.metadata.type,
         score: Math.round(r.score * 100) / 100,
         text: r.metadata.text,
-        ...(r.metadata.shipmentId   && { shipmentId: r.metadata.shipmentId }),
-        ...(r.metadata.status       && { status: r.metadata.status }),
-        ...(r.metadata.customerName && { customerName: r.metadata.customerName }),
-        ...(r.metadata.origin       && { origin: r.metadata.origin }),
-        ...(r.metadata.destination  && { destination: r.metadata.destination }),
+        ...(r.metadata.shipmentId    && { shipmentId:    r.metadata.shipmentId }),
+        ...(r.metadata.status        && { status:        r.metadata.status }),
+        ...(r.metadata.customerName  && { customerName:  r.metadata.customerName }),
+        ...(r.metadata.origin        && { origin:        r.metadata.origin }),
+        ...(r.metadata.destination   && { destination:   r.metadata.destination }),
         ...(r.metadata.invoiceNumber && { invoiceNumber: r.metadata.invoiceNumber }),
-        ...(r.metadata.amount       && { amount: r.metadata.amount }),
-        ...(r.metadata.name         && { name: r.metadata.name }),
-        ...(r.metadata.unitPrice    && { unitPrice: r.metadata.unitPrice }),
+        ...(r.metadata.amount        && { amount:        r.metadata.amount }),
+        ...(r.metadata.name          && { name:          r.metadata.name }),
+        ...(r.metadata.unitPrice     && { unitPrice:     r.metadata.unitPrice }),
       })),
     };
   } catch (error: any) {
@@ -663,93 +676,82 @@ async function executeAggregateData(args: any, companyName: string, companyId: s
     const baseFilter: Record<string, any> = {};
 
     switch (args.collection) {
-      case 'shipments':
-        Model = Shipment;
-        baseFilter.companyName = companyName;
-        break;
-      case 'customers':
-        Model = Customer;
-        baseFilter.companyName = companyName;
-        break;
-      case 'suppliers':
-        Model = Supplier;
-        baseFilter.companyId = companyId;
-        break;
-      case 'invoices':
-        Model = Invoice;
-        baseFilter.companyName = companyName;
-        break;
-      case 'products':
-        Model = Product;
-        baseFilter.companyName = companyName;
-        break;
-      default:
-        return { error: 'Unknown collection' };
+      case 'shipments': Model = Shipment; baseFilter.companyName = companyName; break;
+      case 'customers': Model = Customer; baseFilter.companyName = companyName; break;
+      case 'suppliers': Model = Supplier; baseFilter.companyId   = companyId;   break;
+      case 'invoices':  Model = Invoice;  baseFilter.companyName = companyName; break;
+      case 'products':  Model = Product;  baseFilter.companyName = companyName; break;
+      default: return { error: 'Unknown collection' };
     }
 
     const filter = { ...baseFilter, ...(args.filter || {}) };
 
     switch (args.operation) {
-      case 'count':
+      case 'count': {
         const count = await Model.countDocuments(filter);
         console.log(`✅ Count: ${count}`);
         return { count };
+      }
 
-      case 'sum':
+      case 'sum': {
         if (!args.field) return { error: 'Field required for sum' };
-        const sumData = await Model.find(filter).lean();
-        const total = sumData.reduce((acc: number, doc: any) => {
-          const value = args.field.includes('.')
-            ? args.field.split('.').reduce((obj: any, key: string) => obj?.[key], doc)
+        const data = await Model.find(filter).lean();
+        const total = data.reduce((acc: number, doc: any) => {
+          const val = args.field.includes('.')
+            ? args.field.split('.').reduce((o: any, k: string) => o?.[k], doc)
             : doc[args.field];
-          return acc + (parseFloat(value) || 0);
+          return acc + (parseFloat(val) || 0);
         }, 0);
         console.log(`✅ Sum of ${args.field}: ${total}`);
-        return { sum: total, field: args.field, count: sumData.length };
+        return { sum: total, field: args.field, count: data.length };
+      }
 
-      case 'average':
+      case 'average': {
         if (!args.field) return { error: 'Field required for average' };
-        const avgData = await Model.find(filter).lean();
-        const sum = avgData.reduce((acc: number, doc: any) => {
-          const value = args.field.includes('.')
-            ? args.field.split('.').reduce((obj: any, key: string) => obj?.[key], doc)
+        const data = await Model.find(filter).lean();
+        const sum = data.reduce((acc: number, doc: any) => {
+          const val = args.field.includes('.')
+            ? args.field.split('.').reduce((o: any, k: string) => o?.[k], doc)
             : doc[args.field];
-          return acc + (parseFloat(value) || 0);
+          return acc + (parseFloat(val) || 0);
         }, 0);
-        const avg = avgData.length > 0 ? sum / avgData.length : 0;
+        const avg = data.length > 0 ? sum / data.length : 0;
         console.log(`✅ Average of ${args.field}: ${avg}`);
-        return { average: avg, field: args.field, count: avgData.length };
+        return { average: avg, field: args.field, count: data.length };
+      }
 
-      case 'max':
+      case 'max': {
         if (!args.field) return { error: 'Field required for max' };
-        const maxData = await Model.find(filter).lean();
-        const maxValue = Math.max(...maxData.map((doc: any) => {
-          const value = args.field.includes('.')
-            ? args.field.split('.').reduce((obj: any, key: string) => obj?.[key], doc)
+        const data = await Model.find(filter).lean();
+        const maxValue = Math.max(...data.map((doc: any) => {
+          const val = args.field.includes('.')
+            ? args.field.split('.').reduce((o: any, k: string) => o?.[k], doc)
             : doc[args.field];
-          return parseFloat(value) || 0;
+          return parseFloat(val) || 0;
         }));
         console.log(`✅ Max ${args.field}: ${maxValue}`);
         return { max: maxValue, field: args.field };
+      }
 
-      case 'min':
+      case 'min': {
         if (!args.field) return { error: 'Field required for min' };
-        const minData = await Model.find(filter).lean();
-        const minValue = Math.min(...minData.map((doc: any) => {
-          const value = args.field.includes('.')
-            ? args.field.split('.').reduce((obj: any, key: string) => obj?.[key], doc)
+        const data = await Model.find(filter).lean();
+        const minValue = Math.min(...data.map((doc: any) => {
+          const val = args.field.includes('.')
+            ? args.field.split('.').reduce((o: any, k: string) => o?.[k], doc)
             : doc[args.field];
-          return parseFloat(value) || 0;
+          return parseFloat(val) || 0;
         }));
         console.log(`✅ Min ${args.field}: ${minValue}`);
         return { min: minValue, field: args.field };
+      }
 
-      case 'group_by':
+      case 'group_by': {
         if (!args.groupBy) return { error: 'groupBy field required' };
-        const groupData = await Model.find(filter).lean();
+        const data = await Model.find(filter).lean();
         const grouped: Record<string, any> = {};
 
-        groupData.forEach((doc: any) => {
+        data.forEach((doc: any) => {
           const key = doc[args.groupBy] || 'Unknown';
           if (!grouped[key]) {
             grouped[key] = { count: 0, items: [] };
@@ -757,24 +759,24 @@ async function executeAggregateData(args: any, companyName: string, companyId: s
           }
           grouped[key].count++;
           grouped[key].items.push(doc);
-
           if (args.field) {
-            const value = args.field.includes('.')
-              ? args.field.split('.').reduce((obj: any, key: string) => obj?.[key], doc)
+            const val = args.field.includes('.')
+              ? args.field.split('.').reduce((o: any, k: string) => o?.[k], doc)
               : doc[args.field];
-            grouped[key].sum += parseFloat(value) || 0;
+            grouped[key].sum += parseFloat(val) || 0;
           }
         });
 
-        const groupedArray = Object.entries(grouped).map(([key, value]: [string, any]) => ({
+        const groupedArray = Object.entries(grouped).map(([key, val]: [string, any]) => ({
           [args.groupBy]: key,
-          count: value.count,
-          ...(args.field && { total: value.sum }),
-          ...(args.field && { average: value.sum / value.count }),
+          count: val.count,
+          ...(args.field && { total:   val.sum }),
+          ...(args.field && { average: val.sum / val.count }),
         })).sort((a, b) => b.count - a.count);
 
         console.log(`✅ Grouped by ${args.groupBy}: ${groupedArray.length} groups`);
         return { groups: groupedArray, groupBy: args.groupBy };
+      }
 
       default:
         return { error: 'Unknown operation' };
@@ -823,21 +825,21 @@ async function executeQueryProducts(args: any, companyName: string) {
   return {
     count: products.length,
     products: products.map((p: any) => ({
-      _id:           p._id.toString(),
-      name:          p.name,
-      description:   p.description,
-      hsCode:        p.hsCode,
-      unitPrice:     p.unitPrice,
+      _id:            p._id.toString(),
+      name:           p.name,
+      description:    p.description,
+      hsCode:         p.hsCode,
+      unitPrice:      p.unitPrice,
       dutyPercentage: p.dutyPercentage,
-      supplierId:    p.supplierId,
-      imageUrl:      p.imageUrl,
-      companyName:   p.companyName,
-      createdAt:     p.createdAt,
+      supplierId:     p.supplierId,
+      imageUrl:       p.imageUrl,
+      companyName:    p.companyName,
+      createdAt:      p.createdAt,
     })),
   };
 }
 
-// ── QUERY HANDLERS ─────────────────────────────────────────────────────────────
+// ── SHIPMENTS QUERY HANDLER ───────────────────────────────────────────────────
 async function executeQueryShipments(args: any, companyName: string) {
   const filter: Record<string, any> = { companyName };
 
@@ -850,22 +852,22 @@ async function executeQueryShipments(args: any, companyName: string) {
   if (args.carrier)        filter.carrier        = new RegExp(String(args.carrier), 'i');
   if (args.status)         filter.status         = String(args.status);
 
-  if (args.minCost || args.maxCost) {
+  if (args.minCost !== undefined || args.maxCost !== undefined) {
     filter['costBreakdown.totalLandedCostEGP'] = {};
-    if (args.minCost) filter['costBreakdown.totalLandedCostEGP'].$gte = Number(args.minCost);
-    if (args.maxCost) filter['costBreakdown.totalLandedCostEGP'].$lte = Number(args.maxCost);
+    if (args.minCost !== undefined) filter['costBreakdown.totalLandedCostEGP'].$gte = Number(args.minCost);
+    if (args.maxCost !== undefined) filter['costBreakdown.totalLandedCostEGP'].$lte = Number(args.maxCost);
   }
 
-  if (args.minProfit || args.maxProfit) {
+  if (args.minProfit !== undefined || args.maxProfit !== undefined) {
     filter.companyProfit = {};
-    if (args.minProfit) filter.companyProfit.$gte = args.minProfit;
-    if (args.maxProfit) filter.companyProfit.$lte = args.maxProfit;
+    if (args.minProfit !== undefined) filter.companyProfit.$gte = Number(args.minProfit);
+    if (args.maxProfit !== undefined) filter.companyProfit.$lte = Number(args.maxProfit);
   }
 
-  if (args.minPayment || args.maxPayment) {
+  if (args.minPayment !== undefined || args.maxPayment !== undefined) {
     filter.customerPayment = {};
-    if (args.minPayment) filter.customerPayment.$gte = args.minPayment;
-    if (args.maxPayment) filter.customerPayment.$lte = args.maxPayment;
+    if (args.minPayment !== undefined) filter.customerPayment.$gte = Number(args.minPayment);
+    if (args.maxPayment !== undefined) filter.customerPayment.$lte = Number(args.maxPayment);
   }
 
   if (args.shippingDateFrom || args.shippingDateTo) {
@@ -913,6 +915,7 @@ async function executeQueryShipments(args: any, companyName: string) {
   };
 }
 
+// ── CUSTOMERS QUERY HANDLER ───────────────────────────────────────────────────
 async function executeQueryCustomers(args: any, companyName: string) {
   const filter: Record<string, any> = { companyName };
   if (args.name)    filter.name    = new RegExp(args.name, 'i');
@@ -929,6 +932,7 @@ async function executeQueryCustomers(args: any, companyName: string) {
   };
 }
 
+// ── SUPPLIERS QUERY HANDLER ───────────────────────────────────────────────────
 async function executeQuerySuppliers(args: any, companyId: string) {
   const filter: Record<string, any> = { companyId };
   if (args.name)          filter.name          = new RegExp(args.name, 'i');
@@ -948,16 +952,18 @@ async function executeQuerySuppliers(args: any, companyId: string) {
   };
 }
 
+// ── INVOICES QUERY HANDLER ────────────────────────────────────────────────────
 async function executeQueryInvoices(args: any, companyName: string) {
   const filter: Record<string, any> = { companyName };
   if (args.invoiceNumber) filter.invoiceNumber = new RegExp(args.invoiceNumber, 'i');
   if (args.customerName)  filter.customerName  = new RegExp(args.customerName, 'i');
   if (args.status)        filter.status        = args.status;
 
-  if (args.minAmount || args.maxAmount) {
-    filter.totalAmount = {};
-    if (args.minAmount) filter.totalAmount.$gte = args.minAmount;
-    if (args.maxAmount) filter.totalAmount.$lte = args.maxAmount;
+  // ✅ KEY FIX: always filter on totalAmountEGP so all currencies are comparable
+  if (args.minAmount !== undefined || args.maxAmount !== undefined) {
+    filter.totalAmountEGP = {};
+    if (args.minAmount !== undefined) filter.totalAmountEGP.$gte = Number(args.minAmount);
+    if (args.maxAmount !== undefined) filter.totalAmountEGP.$lte = Number(args.maxAmount);
   }
 
   if (args.dueDateFrom || args.dueDateTo) {
@@ -969,15 +975,24 @@ async function executeQueryInvoices(args: any, companyName: string) {
   const sortField = args.sortBy ?? 'issueDate';
   const sortDir   = args.sortOrder === 'asc' ? 1 : -1;
 
-  const invoices = await Invoice.find(filter as any).sort({ [sortField]: sortDir }).limit(args.limit ?? 10).lean();
+  const invoices = await Invoice.find(filter as any)
+    .sort({ [sortField]: sortDir })
+    .limit(args.limit ?? 10)
+    .lean();
+
   return {
     count: invoices.length,
     invoices: invoices.map((inv: any) => ({
-      id: inv._id.toString(), invoiceNumber: inv.invoiceNumber,
-      customerName: inv.customerName, customerEmail: inv.customerEmail,
-      status: inv.status, totalAmount: inv.totalAmount,
-      totalAmountEGP: inv.totalAmountEGP, currency: inv.currency,
-      issueDate: inv.issueDate, dueDate: inv.dueDate,
+      id:            inv._id.toString(),
+      invoiceNumber: inv.invoiceNumber,
+      customerName:  inv.customerName,
+      customerEmail: inv.customerEmail,
+      status:        inv.status,
+      totalAmount:   inv.totalAmount,
+      totalAmountEGP: inv.totalAmountEGP,
+      currency:      inv.currency,
+      issueDate:     inv.issueDate,
+      dueDate:       inv.dueDate,
     })),
   };
 }
@@ -1000,16 +1015,15 @@ async function executeDbOperation(args: any, companyName: string, companyId: str
     if (args.updates.status && args.updates.status !== shipment.status) {
       shipment.statusHistory = shipment.statusHistory || [];
       shipment.statusHistory.push({
-        status: args.updates.status,
+        status:    args.updates.status,
         changedBy: new mongoose.Types.ObjectId(userId) as any,
         changedAt: new Date(),
-        notes: args.updates.notes || `Status updated by AI assistant`,
+        notes:     args.updates.notes || `Status updated by AI assistant`,
       });
     }
 
     Object.assign(shipment, args.updates);
     await shipment.save();
-
     console.log(`✅ Updated shipment ${shipment.shipmentId}`);
     return {
       success: true,
@@ -1042,33 +1056,29 @@ async function executeDbOperation(args: any, companyName: string, companyId: str
     const dueDate = new Date();
     dueDate.setDate(dueDate.getDate() + 30);
 
-    const lineItems = [
-      {
-        description: `Shipment ${shipment.shipmentId} — ${shipment.origin} → ${shipment.destination}`,
-        quantity: 1,
-        unitPrice: shipment.customerPayment || shipment.totalCost || 0,
-        total: shipment.customerPayment || shipment.totalCost || 0,
-        category: 'shipping',
-      },
-    ];
-
     const invoice = new Invoice({
       invoiceNumber,
-      shipmentId: shipment._id,
-      customerId: shipment.customerId,
-      customerName: shipment.customerName,
+      shipmentId:    shipment._id,
+      customerId:    shipment.customerId,
+      customerName:  shipment.customerName,
       customerEmail: shipment.customerEmail,
       companyId,
       companyName,
       generatedBy: userId ? new mongoose.Types.ObjectId(userId) as any : undefined,
       status: 'unpaid',
-      lineItems,
-      totalAmount: shipment.customerPayment || shipment.totalCost || 0,
+      lineItems: [{
+        description: `Shipment ${shipment.shipmentId} — ${shipment.origin} → ${shipment.destination}`,
+        quantity:    1,
+        unitPrice:   shipment.customerPayment || shipment.totalCost || 0,
+        total:       shipment.customerPayment || shipment.totalCost || 0,
+        category:    'shipping',
+      }],
+      totalAmount:    shipment.customerPayment || shipment.totalCost || 0,
       totalAmountEGP: shipment.costBreakdown?.totalLandedCostEGP || 0,
-      currency: shipment.currency || 'USD',
-      issueDate: new Date(),
+      currency:       shipment.currency || 'USD',
+      issueDate:      new Date(),
       dueDate,
-      costBreakdown: shipment.costBreakdown,
+      costBreakdown:  shipment.costBreakdown,
     });
 
     await invoice.save();
@@ -1077,35 +1087,30 @@ async function executeDbOperation(args: any, companyName: string, companyId: str
       success: true,
       invoiceNumber,
       customerName: shipment.customerName,
-      totalAmount: invoice.totalAmount,
-      currency: invoice.currency,
-      dueDate: invoice.dueDate,
+      totalAmount:  invoice.totalAmount,
+      currency:     invoice.currency,
+      dueDate:      invoice.dueDate,
       message: `Invoice ${invoiceNumber} generated for ${shipment.customerName}`,
     };
   }
 
   if (operation === 'delete_overdue_shipments') {
-    const days = args.olderThanDays ?? 30;
+    const days   = args.olderThanDays ?? 30;
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - days);
 
-    const filter: Record<string, any> = {
-      companyName,
-      createdAt: { $lt: cutoff },
-    };
+    const filter: Record<string, any> = { companyName, createdAt: { $lt: cutoff } };
     if (args.statusFilter) filter.status = args.statusFilter;
 
     const count = await Shipment.countDocuments(filter);
-    if (count === 0) {
-      return { success: true, deleted: 0, message: 'No matching shipments found to delete' };
-    }
+    if (count === 0) return { success: true, deleted: 0, message: 'No matching shipments found to delete' };
 
     const result = await Shipment.deleteMany(filter);
     console.log(`✅ Deleted ${result.deletedCount} shipments older than ${days} days`);
     return {
       success: true,
       deleted: result.deletedCount,
-      filter: { olderThanDays: days, status: args.statusFilter || 'any' },
+      filter:  { olderThanDays: days, status: args.statusFilter || 'any' },
       message: `Deleted ${result.deletedCount} shipment${result.deletedCount !== 1 ? 's' : ''} older than ${days} days`,
     };
   }
@@ -1118,11 +1123,11 @@ async function executeDbOperation(args: any, companyName: string, companyId: str
     const filter: Record<string, any> = { companyName };
     let hasFilter = false;
 
-    if (args.status)      { filter.status      = args.status;                                    hasFilter = true; }
-    if (args.origin)      { filter.origin      = new RegExp(String(args.origin), 'i');           hasFilter = true; }
-    if (args.destination) { filter.destination = new RegExp(String(args.destination), 'i');      hasFilter = true; }
-    if (args.carrier)     { filter.carrier     = new RegExp(String(args.carrier), 'i');          hasFilter = true; }
-    if (args.customerName){ filter.customerName= new RegExp(String(args.customerName), 'i');     hasFilter = true; }
+    if (args.status)       { filter.status       = args.status;                                hasFilter = true; }
+    if (args.origin)       { filter.origin       = new RegExp(String(args.origin), 'i');       hasFilter = true; }
+    if (args.destination)  { filter.destination  = new RegExp(String(args.destination), 'i');  hasFilter = true; }
+    if (args.carrier)      { filter.carrier      = new RegExp(String(args.carrier), 'i');      hasFilter = true; }
+    if (args.customerName) { filter.customerName = new RegExp(String(args.customerName), 'i'); hasFilter = true; }
 
     if (args.estimatedArrivalFrom || args.estimatedArrivalTo) {
       filter.estimatedArrival = {};
@@ -1153,9 +1158,7 @@ async function executeDbOperation(args: any, companyName: string, companyId: str
     }
 
     const count = await Shipment.countDocuments(filter);
-    if (count === 0) {
-      return { success: true, updated: 0, message: 'No shipments matched the filter — nothing updated.' };
-    }
+    if (count === 0) return { success: true, updated: 0, message: 'No shipments matched the filter — nothing updated.' };
 
     const setPayload: Record<string, any> = { ...args.updates };
     const newStatus = args.updates.status;
@@ -1167,10 +1170,10 @@ async function executeDbOperation(args: any, companyName: string, companyId: str
         {
           $push: {
             statusHistory: {
-              status: newStatus,
+              status:    newStatus,
               changedBy: new mongoose.Types.ObjectId(userId) as any,
               changedAt: new Date(),
-              notes: `Bulk status update by AI assistant`,
+              notes:     `Bulk status update by AI assistant`,
             },
           },
         }
@@ -1193,57 +1196,41 @@ async function executeDbOperation(args: any, companyName: string, companyId: str
     }
 
     if (args.customerName) {
-      const customer = await Customer.findOne({
-        companyName,
-        name: new RegExp(String(args.customerName), 'i'),
-      });
-      if (!customer) {
-        return {
-          error: `Customer "${args.customerName}" not found. Please create the customer first or check the spelling.`,
-        };
-      }
+      const customer = await Customer.findOne({ companyName, name: new RegExp(String(args.customerName), 'i') });
+      if (!customer) return { error: `Customer "${args.customerName}" not found. Please create the customer first or check the spelling.` };
     }
 
     if (args.supplierName) {
-      const supplier = await Supplier.findOne({
-        companyId,
-        name: new RegExp(String(args.supplierName), 'i'),
-      });
-      if (!supplier) {
-        return {
-          error: `Supplier "${args.supplierName}" not found. Please create the supplier first or check the spelling.`,
-        };
-      }
+      const supplier = await Supplier.findOne({ companyId, name: new RegExp(String(args.supplierName), 'i') });
+      if (!supplier) return { error: `Supplier "${args.supplierName}" not found. Please create the supplier first or check the spelling.` };
     }
 
-    const count = await Shipment.countDocuments({ companyName });
+    const count      = await Shipment.countDocuments({ companyName });
     const shipmentId = `SHP-${String(count + 1).padStart(4, '0')}`;
 
     const shipment = new Shipment({
-      companyName,
-      companyId,
-      shipmentId,
-      origin: args.origin,
+      companyName, companyId, shipmentId,
+      origin:      args.origin,
       destination: args.destination,
       customerName: args.customerName || '',
       supplierName: args.supplierName || '',
-      carrier: args.carrier || 'Other',
+      carrier:      args.carrier || 'Other',
       shippingDate: args.shippingDate ? new Date(args.shippingDate) : new Date(),
       estimatedArrival: args.estimatedArrival ? new Date(args.estimatedArrival) : (() => {
         const d = new Date(); d.setDate(d.getDate() + 14); return d;
       })(),
-      status: 'pending',
-      weight: args.weight || 0,
+      status:   'pending',
+      weight:   args.weight   || 0,
       currency: args.currency || 'USD',
-      totalCost: args.totalCost || 0,
+      totalCost:       args.totalCost       || 0,
       customerPayment: args.customerPayment || 0,
-      notes: args.notes || '',
+      notes:    args.notes || '',
       createdBy: userId ? new mongoose.Types.ObjectId(userId) as any : undefined,
       statusHistory: [{
-        status: 'pending',
+        status:    'pending',
         changedBy: userId ? new mongoose.Types.ObjectId(userId) as any : undefined,
         changedAt: new Date(),
-        notes: 'Created by AI assistant',
+        notes:     'Created by AI assistant',
       }],
     });
 
@@ -1252,10 +1239,10 @@ async function executeDbOperation(args: any, companyName: string, companyId: str
     return {
       success: true,
       shipmentId,
-      origin: shipment.origin,
-      destination: shipment.destination,
+      origin:       shipment.origin,
+      destination:  shipment.destination,
       customerName: shipment.customerName,
-      status: 'pending',
+      status:       'pending',
       message: `Shipment ${shipmentId} created successfully`,
     };
   }
@@ -1278,7 +1265,7 @@ export async function POST(request: NextRequest) {
         const user = verifyToken(token);
         companyName = user?.companyName ?? '';
         companyId   = user?.companyId   ?? '';
-        userId      = user?.userId ?? '';
+        userId      = user?.userId      ?? '';
       } catch {}
     }
 
@@ -1286,20 +1273,20 @@ export async function POST(request: NextRequest) {
 
     const contents: any[] = [
       ...history.map((m: any) => ({
-        role: m.role === 'assistant' ? 'model' : 'user',
+        role:  m.role === 'assistant' ? 'model' : 'user',
         parts: [{ text: m.text }],
       })),
       { role: 'user', parts: [{ text: message }] },
     ];
 
-    let finalText           = '';
+    let finalText                 = '';
     let navigateTo: string | null = null;
-    let allShipments:  any[] = [];
-    let allCustomers:  any[] = [];
-    let allSuppliers:  any[] = [];
-    let allInvoices:   any[] = [];
-    let allProducts:   any[] = [];           // ← NEW
-    let semanticResults: any[] = [];
+    let allShipments:  any[]      = [];
+    let allCustomers:  any[]      = [];
+    let allSuppliers:  any[]      = [];
+    let allInvoices:   any[]      = [];
+    let allProducts:   any[]      = [];
+    let semanticResults: any[]    = [];
     let dbOperationResults: any[] = [];
 
     // Agentic loop
@@ -1320,7 +1307,7 @@ export async function POST(request: NextRequest) {
       if (!functionCalls || functionCalls.length === 0) break;
 
       contents.push({
-        role: 'model',
+        role:  'model',
         parts: functionCalls.map((fc: any) => ({ functionCall: fc })),
       });
 
@@ -1337,7 +1324,7 @@ export async function POST(request: NextRequest) {
             if (result.results?.length) semanticResults.push(...result.results);
           } else if (name === 'aggregate_data') {
             result = await executeAggregateData(args, companyName, companyId);
-          } else if (name === 'query_products') {                          // ← NEW
+          } else if (name === 'query_products') {
             result = await executeQueryProducts(args, companyName);
             if (result.products?.length) allProducts.push(...result.products);
           } else if (name === 'query_shipments') {
@@ -1353,14 +1340,10 @@ export async function POST(request: NextRequest) {
             result = await executeQueryInvoices(args, companyName);
             if (result.invoices?.length) allInvoices.push(...result.invoices);
           } else if (name === 'navigate') {
-            let route = (args?.route as string) ?? null;
-            const entityType = args?.entityType as string;
-            const entityId   = args?.entityId   as string;
-
-            if (entityType && entityId) {
-              route = `/${entityType}s/${entityId}`;
-            }
-
+            let route        = (args?.route      as string) ?? null;
+            const entityType = (args?.entityType as string);
+            const entityId   = (args?.entityId   as string);
+            if (entityType && entityId) route = `/${entityType}s/${entityId}`;
             navigateTo = route;
             result = { success: true, route: navigateTo };
           } else if (name === 'execute_db_operation') {
@@ -1374,36 +1357,31 @@ export async function POST(request: NextRequest) {
           result = { error: err.message };
         }
 
-        functionResponses.push({
-          functionResponse: { name, response: result },
-        });
+        functionResponses.push({ functionResponse: { name, response: result } });
       }
 
       contents.push({ role: 'user', parts: functionResponses });
     }
 
     const hasData =
-      allShipments.length ||
-      allCustomers.length ||
-      allSuppliers.length ||
-      allInvoices.length  ||
-      allProducts.length;                    // ← NEW
+      allShipments.length || allCustomers.length || allSuppliers.length ||
+      allInvoices.length  || allProducts.length;
 
     let action = 'answer';
-    if (navigateTo)                    action = 'navigate';
+    if (navigateTo)                     action = 'navigate';
     else if (dbOperationResults.length) action = 'db_operation';
-    else if (hasData)                  action = 'fetch_data';
-    else if (semanticResults.length)   action = 'semantic_results';
+    else if (hasData)                   action = 'fetch_data';
+    else if (semanticResults.length)    action = 'semantic_results';
 
     return NextResponse.json({
       action,
-      message:   finalText || 'Done.',
-      route:     navigateTo,
-      shipments: allShipments.length ? allShipments : undefined,
-      customers: allCustomers.length ? allCustomers : undefined,
-      suppliers: allSuppliers.length ? allSuppliers : undefined,
-      invoices:  allInvoices.length  ? allInvoices  : undefined,
-      products:  allProducts.length  ? allProducts  : undefined,   // ← NEW
+      message:            finalText || 'Done.',
+      route:              navigateTo,
+      shipments:          allShipments.length       ? allShipments       : undefined,
+      customers:          allCustomers.length       ? allCustomers       : undefined,
+      suppliers:          allSuppliers.length       ? allSuppliers       : undefined,
+      invoices:           allInvoices.length        ? allInvoices        : undefined,
+      products:           allProducts.length        ? allProducts        : undefined,
       semanticResults:    semanticResults.length    ? semanticResults    : undefined,
       dbOperationResults: dbOperationResults.length ? dbOperationResults : undefined,
       confidence: 1.0,
